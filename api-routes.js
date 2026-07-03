@@ -1,11 +1,8 @@
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const router = express.Router();
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+// Use the shared, validated Supabase client
+const { supabase } = require('./config/supabase');
 
 // ============ TRACK USER INSTALLATION ============
 router.post('/api/track/installation', async (req, res) => {

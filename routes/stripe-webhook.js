@@ -5,7 +5,11 @@
 //   Events: checkout.session.completed, customer.subscription.deleted
 // Then copy the signing secret into the STRIPE_WEBHOOK_SECRET env var.
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Lazy init — require('stripe')(undefined) throws at load time and would
+// crash the whole server when STRIPE_SECRET_KEY isn't configured
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
 const { supabase } = require('../config/supabase');
 
 async function setUserTier(email, updates) {
@@ -27,6 +31,11 @@ async function setUserTier(email, updates) {
 }
 
 module.exports = async function stripeWebhook(req, res) {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn('[Stripe Webhook] Stripe not configured — ignoring webhook');
+    return res.status(503).json({ error: 'Stripe not configured' });
+  }
+
   const signature = req.headers['stripe-signature'];
 
   let event;

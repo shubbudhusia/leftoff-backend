@@ -7,18 +7,29 @@ const fs = require('fs');
 // Initialize Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-// Razorpay API
-const razorpayClient = require('razorpay');
-const razorpay = new razorpayClient({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-});
+// Razorpay API (optional — skip if keys not configured, so the server
+// can still start without them)
+let razorpay = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  const razorpayClient = require('razorpay');
+  razorpay = new razorpayClient({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET
+  });
+} else {
+  console.warn('⚠️ Razorpay keys not set — payment sync from Razorpay disabled');
+}
 
-// Stripe API
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Stripe API (optional)
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
+if (!stripe) {
+  console.warn('⚠️ STRIPE_SECRET_KEY not set — payment sync from Stripe disabled');
+}
 
 class DataSyncService {
   async syncAllData() {
@@ -58,6 +69,7 @@ class DataSyncService {
 
   // Sync Razorpay Payments
   async syncRazorpayPayments() {
+    if (!razorpay) return; // not configured
     try {
       const payments = await razorpay.payments.all({ count: 100 });
 
@@ -108,6 +120,7 @@ class DataSyncService {
 
   // Sync Stripe Payments
   async syncStripePayments() {
+    if (!stripe) return; // not configured
     try {
       const charges = await stripe.charges.list({ limit: 100 });
 
