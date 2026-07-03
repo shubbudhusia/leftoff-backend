@@ -4,6 +4,9 @@ const dotenv = require('dotenv');
 const cron = require('node-cron');
 const DataSyncService = require('./services/data-sync-service');
 const apiRoutes = require('./api-routes');
+const authRoutes = require('./routes/auth');
+const stripeWebhook = require('./routes/stripe-webhook');
+const razorpayWebhook = require('./routes/razorpay-webhook');
 
 // Load environment variables
 dotenv.config();
@@ -14,11 +17,18 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
+
+// Payment webhooks need the RAW request body for signature verification,
+// so they must be mounted BEFORE express.json()
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+app.post('/api/razorpay/webhook', express.raw({ type: 'application/json' }), razorpayWebhook);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // API Routes
 app.use(apiRoutes);
+app.use('/api/auth', authRoutes);
 
 // Initialize data sync service
 const dataSyncService = new DataSyncService();

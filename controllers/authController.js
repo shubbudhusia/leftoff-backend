@@ -224,27 +224,58 @@ exports.signup = async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const { data: existingUser, error: checkError } = await supabase
-      .from('extension_users')
-      .select('id')
-      .eq('email', email.toLowerCase())
-      .eq('extension_id', (await supabase.from('extensions').select('id').eq('name', 'leftoff')).data[0].id)
-      .single();
-
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already registered'
-      });
-    }
-
     // Get leftoff extension ID
     const { data: extension } = await supabase
       .from('extensions')
       .select('id')
       .eq('name', 'leftoff')
       .single();
+
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from('extension_users')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .eq('extension_id', extension.id)
+      .single();
+
+    if (existingUser) {
+      // Existing user (e.g. reinstalled the extension) — treat as a login:
+      // send a fresh code by email so they can verify ownership, then the
+      // extension restores their ORIGINAL trial/premium state from the server.
+      const loginCode = generateVerificationCode();
+
+      await supabase
+        .from('extension_users')
+        .update({ verification_code: loginCode })
+        .eq('id', existingUser.id);
+
+      transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Your LeftOff Login Code',
+        html: `
+          <h2>Welcome back, ${existingUser.full_name}!</h2>
+          <p>Use this code to sign back in to LeftOff:</p>
+          <h1 style="letter-spacing: 6px;">${loginCode}</h1>
+          <p style="color: #999; font-size: 12px;">
+            If you didn't request this, you can ignore this email.
+          </p>
+        `
+      }, (err) => {
+        if (err) console.error('Login code email failed:', err);
+      });
+
+      return res.status(200).json({
+        success: true,
+        existing: true,
+        message: 'Welcome back! We emailed you a login code.',
+        data: {
+          leftOffId: existingUser.left_off_id,
+          email: existingUser.email
+        }
+      });
+    }
 
     // Generate LeftOff ID and verification code
     const leftOffId = generateLeftOffId();
@@ -315,12 +346,14 @@ exports.signup = async (req, res) => {
       leftOffId: leftOffId
     });
 
+    // SECURITY: never return the verification code to the client —
+    // the email is the only delivery channel, that's what makes it verification
     res.status(201).json({
       success: true,
+      existing: false,
       message: 'Account created. Verification email sent.',
       data: {
         leftOffId: leftOffId,
-        verificationCode: verificationCode,
         email: email
       }
     });
@@ -425,7 +458,11 @@ exports.verifyCode = async (req, res) => {
           email: user.email,
           leftOffId: user.left_off_id,
           tier: user.tier,
-          emailVerified: user.email_verified
+          isPremium: user.is_premium,
+          isInTrial: user.is_in_trial,
+          trialStartDate: user.trial_start_date,
+          trialEndDate: user.trial_end_date,
+          emailVerified: true
         }
       }
     });
@@ -471,6 +508,9 @@ exports.getUser = async (req, res) => {
         leftOffId: user.left_off_id,
         tier: user.tier,
         isPremium: user.is_premium,
+        isInTrial: user.is_in_trial,
+        trialStartDate: user.trial_start_date,
+        trialEndDate: user.trial_end_date,
         emailVerified: user.email_verified
       }
     });
@@ -509,12 +549,7 @@ exports.resendVerificationCode = async (req, res) => {
       });
     }
 
-    if (user.email_verified) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already verified'
-      });
-    }
+    // Note: verified users may also request a code (login after reinstall)
 
     // Generate new code
     const newCode = generateVerificationCode();
@@ -547,12 +582,10 @@ exports.resendVerificationCode = async (req, res) => {
       if (err) console.error('Resend failed:', err);
     });
 
+    // SECURITY: never return the code to the client
     res.status(200).json({
       success: true,
-      message: 'Verification code resent',
-      data: {
-        verificationCode: newCode
-      }
+      message: 'Verification code resent'
     });
 
   } catch (error) {
@@ -646,6 +679,15 @@ exports.processTrialReminders = async (req, res) => {
 
 exports.upgradeToPremium = async (req, res) => {
   try {
+    // SECURITY: admin-only. Real payments upgrade users via the Stripe
+    // webhook (/api/stripe/webhook) — never via a client-callable endpoint.
+    if (req.headers['x-admin-key'] !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
     const { email } = req.body;
 
     if (!email) {
