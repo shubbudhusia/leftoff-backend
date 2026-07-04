@@ -6,14 +6,10 @@
 //   Secret: set any strong secret and copy it to RAZORPAY_WEBHOOK_SECRET env var
 
 const crypto = require('crypto');
-const { supabase } = require('../config/supabase');
+const { supabase, getExtensionId } = require('../config/supabase');
 
 async function setUserPremium(email) {
-  const { data: extension } = await supabase
-    .from('extensions')
-    .select('id')
-    .eq('name', 'leftoff')
-    .single();
+  const extensionId = await getExtensionId();
 
   const { data, error } = await supabase
     .from('extension_users')
@@ -25,7 +21,7 @@ async function setUserPremium(email) {
       trial_end_date: null
     })
     .eq('email', email.toLowerCase())
-    .eq('extension_id', extension.id)
+    .eq('extension_id', extensionId)
     .select();
 
   if (error) throw error;

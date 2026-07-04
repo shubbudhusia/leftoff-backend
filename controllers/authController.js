@@ -1,4 +1,4 @@
-const { supabase } = require('../config/supabase');
+const { supabase, getExtensionId } = require('../config/supabase');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 
@@ -224,19 +224,15 @@ exports.signup = async (req, res) => {
       });
     }
 
-    // Get leftoff extension ID
-    const { data: extension } = await supabase
-      .from('extensions')
-      .select('id')
-      .eq('name', 'leftoff')
-      .single();
+    // Get leftoff extension ID (creates the row if missing)
+    const extensionId = await getExtensionId();
 
     // Check if user already exists
     const { data: existingUser } = await supabase
       .from('extension_users')
       .select('*')
       .eq('email', email.toLowerCase())
-      .eq('extension_id', extension.id)
+      .eq('extension_id', extensionId)
       .single();
 
     if (existingUser) {
@@ -287,7 +283,7 @@ exports.signup = async (req, res) => {
       .from('extension_users')
       .insert([
         {
-          extension_id: extension.id,
+          extension_id: extensionId,
           full_name: name,
           email: email.toLowerCase(),
           left_off_id: leftOffId,
@@ -379,19 +375,15 @@ exports.verifyCode = async (req, res) => {
       });
     }
 
-    // Get leftoff extension ID
-    const { data: extension } = await supabase
-      .from('extensions')
-      .select('id')
-      .eq('name', 'leftoff')
-      .single();
+    // Get leftoff extension ID (creates the row if missing)
+    const extensionId = await getExtensionId();
 
     // Find user
     const { data: user, error: selectError } = await supabase
       .from('extension_users')
       .select('*')
       .eq('email', email.toLowerCase())
-      .eq('extension_id', extension.id)
+      .eq('extension_id', extensionId)
       .single();
 
     if (!user) {
@@ -479,18 +471,14 @@ exports.verifyCode = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
-    // Get leftoff extension ID
-    const { data: extension } = await supabase
-      .from('extensions')
-      .select('id')
-      .eq('name', 'leftoff')
-      .single();
+    // Get leftoff extension ID (creates the row if missing)
+    const extensionId = await getExtensionId();
 
     const { data: user, error } = await supabase
       .from('extension_users')
       .select('*')
       .eq('email', req.params.email.toLowerCase())
-      .eq('extension_id', extension.id)
+      .eq('extension_id', extensionId)
       .single();
 
     if (!user) {
@@ -528,18 +516,14 @@ exports.resendVerificationCode = async (req, res) => {
   try {
     const { email } = req.body;
 
-    // Get leftoff extension ID
-    const { data: extension } = await supabase
-      .from('extensions')
-      .select('id')
-      .eq('name', 'leftoff')
-      .single();
+    // Get leftoff extension ID (creates the row if missing)
+    const extensionId = await getExtensionId();
 
     const { data: user } = await supabase
       .from('extension_users')
       .select('*')
       .eq('email', email.toLowerCase())
-      .eq('extension_id', extension.id)
+      .eq('extension_id', extensionId)
       .single();
 
     if (!user) {
@@ -699,12 +683,8 @@ exports.upgradeToPremium = async (req, res) => {
 
     console.log('[Premium Upgrade] Upgrading user:', email);
 
-    // Get leftoff extension ID
-    const { data: extension } = await supabase
-      .from('extensions')
-      .select('id')
-      .eq('name', 'leftoff')
-      .single();
+    // Get leftoff extension ID (creates the row if missing)
+    const extensionId = await getExtensionId();
 
     // Update user to premium in Supabase
     const { data, error } = await supabase
@@ -717,7 +697,7 @@ exports.upgradeToPremium = async (req, res) => {
         is_in_trial: false
       })
       .eq('email', email.toLowerCase())
-      .eq('extension_id', extension.id)
+      .eq('extension_id', extensionId)
       .select();
 
     if (error) {

@@ -39,7 +39,43 @@ async function testConnection() {
   }
 }
 
+// Look up (or create) the 'leftoff' extension row and cache its id.
+// Self-heals a fresh database instead of crashing with a null reference.
+let cachedExtensionId = null;
+async function getExtensionId() {
+  if (cachedExtensionId) return cachedExtensionId;
+
+  const { data: existing } = await supabase
+    .from('extensions')
+    .select('id')
+    .eq('name', 'leftoff')
+    .single();
+
+  if (existing) {
+    cachedExtensionId = existing.id;
+    return cachedExtensionId;
+  }
+
+  const { data: created, error } = await supabase
+    .from('extensions')
+    .insert({ name: 'leftoff' })
+    .select()
+    .single();
+
+  if (error || !created) {
+    throw new Error(
+      `Cannot read or create the 'leftoff' row in the extensions table: ${error?.message}. ` +
+      'Check that SUPABASE_KEY is the service_role key (not the anon key).'
+    );
+  }
+
+  console.log('[Supabase] Created missing leftoff extension row:', created.id);
+  cachedExtensionId = created.id;
+  return cachedExtensionId;
+}
+
 module.exports = {
   supabase,
-  testConnection
+  testConnection,
+  getExtensionId
 };

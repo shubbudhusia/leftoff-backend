@@ -4,24 +4,20 @@
 
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../config/supabase');
+const { supabase, getExtensionId } = require('../config/supabase');
 
 // The caller must present BOTH the email and the matching LeftOff ID —
 // prevents reading someone else's history knowing only their email
 async function verifyUser(email, leftOffId) {
   if (!email || !leftOffId) return null;
 
-  const { data: extension } = await supabase
-    .from('extensions')
-    .select('id')
-    .eq('name', 'leftoff')
-    .single();
+  const extensionId = await getExtensionId();
 
   const { data: user } = await supabase
     .from('extension_users')
     .select('id, left_off_id')
     .eq('email', email.toLowerCase())
-    .eq('extension_id', extension.id)
+    .eq('extension_id', extensionId)
     .single();
 
   if (!user || user.left_off_id !== leftOffId) return null;

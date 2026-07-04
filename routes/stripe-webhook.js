@@ -10,20 +10,16 @@
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
-const { supabase } = require('../config/supabase');
+const { supabase, getExtensionId } = require('../config/supabase');
 
 async function setUserTier(email, updates) {
-  const { data: extension } = await supabase
-    .from('extensions')
-    .select('id')
-    .eq('name', 'leftoff')
-    .single();
+  const extensionId = await getExtensionId();
 
   const { data, error } = await supabase
     .from('extension_users')
     .update(updates)
     .eq('email', email.toLowerCase())
-    .eq('extension_id', extension.id)
+    .eq('extension_id', extensionId)
     .select();
 
   if (error) throw error;
