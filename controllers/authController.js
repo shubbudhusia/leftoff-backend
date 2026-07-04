@@ -62,6 +62,43 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Render's free tier BLOCKS outbound SMTP (ports 25/465/587), so direct
+// Gmail sending always times out there. When BREVO_API_KEY is set we send
+// through Brevo's HTTPS API instead (port 443 — never blocked).
+// Drop-in replacement for sendEmail(mailOptions, callback).
+function sendEmail(mailOptions, callback) {
+  const cb = callback || (() => {});
+
+  if (process.env.BREVO_API_KEY) {
+    fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: { name: 'LeftOff', email: process.env.EMAIL_USER },
+        to: [{ email: mailOptions.to }],
+        subject: mailOptions.subject,
+        htmlContent: mailOptions.html
+      })
+    })
+      .then(async res => {
+        if (!res.ok) throw new Error(`Brevo ${res.status}: ${await res.text()}`);
+        console.log('[Email] ✅ Sent via Brevo to:', mailOptions.to);
+        cb(null, { accepted: [mailOptions.to] });
+      })
+      .catch(err => {
+        console.error('[Email] Brevo send failed:', err.message);
+        cb(err);
+      });
+    return;
+  }
+
+  // No Brevo key — fall back to SMTP (works locally, not on Render free tier)
+  transporter.sendMail(mailOptions, cb);
+}
+
 // Send Day 5 reminder email
 function sendDay5ReminderEmail(email, name, daysLeft) {
   const mailOptions = {
@@ -102,7 +139,7 @@ function sendDay5ReminderEmail(email, name, daysLeft) {
   };
 
   return new Promise((resolve) => {
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) {
         console.error('[Day 5 Reminder] Failed:', err);
       } else {
@@ -153,7 +190,7 @@ function sendDay7ReminderEmail(email, name) {
   };
 
   return new Promise((resolve) => {
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) console.error('[Day 7 Reminder] Failed:', err);
       else console.log('[Day 7 Reminder] Sent to:', email);
       resolve();
@@ -206,7 +243,7 @@ function sendTrialExpiredEmail(email, name) {
   };
 
   return new Promise((resolve) => {
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) console.error('[Trial Expired] Failed:', err);
       else console.log('[Trial Expired] Sent to:', email);
       resolve();
@@ -249,7 +286,7 @@ exports.signup = async (req, res) => {
         .update({ verification_code: loginCode })
         .eq('id', existingUser.id);
 
-      transporter.sendMail({
+      sendEmail({
         from: process.env.EMAIL_USER,
         to: email,
         subject: 'Your LeftOff Login Code',
@@ -331,7 +368,7 @@ exports.signup = async (req, res) => {
       `
     };
 
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) {
         console.error('Email sending failed:', err);
       } else {
@@ -438,7 +475,7 @@ exports.verifyCode = async (req, res) => {
       `
     };
 
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) console.error('Confirmation email failed:', err);
     });
 
@@ -565,7 +602,7 @@ exports.resendVerificationCode = async (req, res) => {
       `
     };
 
-    transporter.sendMail(mailOptions, (err) => {
+    sendEmail(mailOptions, (err) => {
       if (err) console.error('Resend failed:', err);
     });
 
@@ -775,7 +812,7 @@ function sendPremiumWelcomeEmail(email, name) {
   };
 
   // Send email asynchronously (don't wait for response)
-  transporter.sendMail(mailOptions, (err, info) => {
+  sendEmail(mailOptions, (err, info) => {
     if (err) {
       console.log('[Premium Email] Error sending email:', err.message);
     } else {
