@@ -1,3 +1,7 @@
+// Render's network cannot reach some hosts over IPv6 (ENETUNREACH) —
+// prefer IPv4 for all DNS lookups (fixes Gmail SMTP connections)
+require('dns').setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
