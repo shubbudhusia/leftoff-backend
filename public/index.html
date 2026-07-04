@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeftOff — Never Lose Your Place on YouTube</title>
+  <meta name="description" content="LeftOff is a Chrome extension that tracks YouTube videos you didn't finish and resumes them exactly where you left off.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1a1a1a; line-height: 1.6; background: #fff;
+    }
+    .hero {
+      background: linear-gradient(135deg, #FF0000 0%, #CC0000 100%);
+      color: white; text-align: center; padding: 80px 20px 70px;
+    }
+    .hero .logo { font-size: 56px; margin-bottom: 16px; }
+    .hero h1 { font-size: 42px; font-weight: 800; margin-bottom: 14px; letter-spacing: -1px; }
+    .hero p { font-size: 18px; opacity: 0.95; max-width: 560px; margin: 0 auto 28px; }
+    .btn {
+      display: inline-block; background: white; color: #FF0000; padding: 14px 32px;
+      border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 16px;
+    }
+    section { max-width: 960px; margin: 0 auto; padding: 60px 20px; }
+    h2 { font-size: 28px; margin-bottom: 28px; text-align: center; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .feature {
+      background: #f9f9f9; border: 1px solid #eee; border-radius: 12px; padding: 24px;
+    }
+    .feature .icon { font-size: 32px; margin-bottom: 10px; }
+    .feature h3 { font-size: 17px; margin-bottom: 6px; }
+    .feature p { font-size: 14px; color: #555; }
+    .pricing { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+    .plan {
+      border: 2px solid #eee; border-radius: 14px; padding: 28px; width: 260px; text-align: center;
+    }
+    .plan.popular { border-color: #FF0000; }
+    .plan h3 { font-size: 18px; margin-bottom: 8px; }
+    .plan .price { font-size: 36px; font-weight: 800; color: #FF0000; margin-bottom: 4px; }
+    .plan .per { color: #777; font-size: 13px; margin-bottom: 14px; }
+    .plan ul { list-style: none; font-size: 14px; color: #444; text-align: left; }
+    .plan li { padding: 4px 0; }
+    footer {
+      background: #111; color: #bbb; text-align: center; padding: 36px 20px; font-size: 14px;
+    }
+    footer a { color: #fff; text-decoration: none; margin: 0 10px; }
+    footer .links { margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="logo">▶️</div>
+    <h1>LeftOff</h1>
+    <p>The Chrome extension that remembers every YouTube video you didn't finish — and resumes it exactly where you left off.</p>
+    <a class="btn" href="https://chromewebstore.google.com/search/LeftOff" target="_blank" rel="noopener">Get LeftOff for Chrome</a>
+  </div>
+
+  <section>
+    <h2>Why LeftOff?</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="icon">⏱️</div>
+        <h3>Automatic Resume</h3>
+        <p>Every video you watch is tracked automatically. Come back days later and continue from the exact second you stopped.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🎯</div>
+        <h3>Watch Queue</h3>
+        <p>See all your unfinished videos in one place, with progress bars, watch analytics, and smart suggestions.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">☁️</div>
+        <h3>Cloud Sync</h3>
+        <p>Your history follows your account. Reinstall or switch computers — sign in and everything comes back.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🔔</div>
+        <h3>Reminders</h3>
+        <p>Get nudged about videos you abandoned so good content never slips through the cracks.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Simple Pricing</h2>
+    <div class="pricing">
+      <div class="plan">
+        <h3>Free Trial</h3>
+        <div class="price">7 days</div>
+        <div class="per">no card required</div>
+        <ul>
+          <li>✓ Full feature access</li>
+          <li>✓ Automatic tracking</li>
+          <li>✓ Watch queue &amp; analytics</li>
+        </ul>
+      </div>
+      <div class="plan popular">
+        <h3>Premium Monthly</h3>
+        <div class="price">$1</div>
+        <div class="per">per month · ₹18 in India</div>
+        <ul>
+          <li>✓ Everything in trial</li>
+          <li>✓ Unlimited videos</li>
+          <li>✓ Cloud backup &amp; sync</li>
+          <li>✓ Cancel anytime</li>
+        </ul>
+      </div>
+      <div class="plan">
+        <h3>Premium Yearly</h3>
+        <div class="price">$10</div>
+        <div class="per">per year · ₹183 in India</div>
+        <ul>
+          <li>✓ Everything in monthly</li>
+          <li>✓ 2 months free</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="links">
+      <a href="/terms.html">Terms of Service</a> ·
+      <a href="/privacy.html">Privacy Policy</a> ·
+      <a href="/refunds.html">Refund Policy</a>
+    </div>
+    <div>Support: dhusiashubham@gmail.com</div>
+    <div style="margin-top:8px; color:#777;">© 2026 LeftOff</div>
+  </footer>
+</body>
+</html>

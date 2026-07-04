@@ -22,6 +22,10 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 
+// Public website (landing page + terms/privacy/refund policy) —
+// served at https://leftoff-backend.onrender.com/
+app.use(express.static('public'));
+
 // Payment webhooks need the RAW request body for signature verification,
 // so they must be mounted BEFORE express.json()
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
