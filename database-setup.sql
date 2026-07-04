@@ -140,6 +140,15 @@ CREATE TABLE IF NOT EXISTS extension_events (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 8. Cloud Sync — full video/queue history per user (restored on login)
+CREATE TABLE IF NOT EXISTS user_sync (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  left_off_id VARCHAR(50),
+  data JSONB,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Create indexes for faster queries
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_country ON users(country);

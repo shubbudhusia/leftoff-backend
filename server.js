@@ -29,6 +29,7 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // API Routes
 app.use(apiRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/sync', require('./routes/sync'));
 
 // Initialize data sync service
 const dataSyncService = new DataSyncService();
