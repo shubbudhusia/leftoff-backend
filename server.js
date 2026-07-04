@@ -26,6 +26,7 @@ app.use(cors());
 // so they must be mounted BEFORE express.json()
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 app.post('/api/razorpay/webhook', express.raw({ type: 'application/json' }), razorpayWebhook);
+app.post('/api/dodo/webhook', express.raw({ type: 'application/json' }), require('./routes/dodo-webhook'));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
