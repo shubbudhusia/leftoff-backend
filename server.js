@@ -9,7 +9,6 @@ const cron = require('node-cron');
 const DataSyncService = require('./services/data-sync-service');
 const apiRoutes = require('./api-routes');
 const authRoutes = require('./routes/auth');
-const stripeWebhook = require('./routes/stripe-webhook');
 const razorpayWebhook = require('./routes/razorpay-webhook');
 
 // Load environment variables
@@ -28,7 +27,6 @@ app.use(express.static('public'));
 
 // Payment webhooks need the RAW request body for signature verification,
 // so they must be mounted BEFORE express.json()
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 app.post('/api/razorpay/webhook', express.raw({ type: 'application/json' }), razorpayWebhook);
 app.post('/api/dodo/webhook', express.raw({ type: 'application/json' }), require('./routes/dodo-webhook'));
 
@@ -82,7 +80,7 @@ app.get('/api/status', (req, res) => {
     features: {
       supabase: !!process.env.SUPABASE_URL,
       razorpay: !!process.env.RAZORPAY_KEY_ID,
-      stripe: !!process.env.STRIPE_SECRET_KEY,
+      dodo: !!process.env.DODO_WEBHOOK_SECRET,
       dailySync: true,
       excel: true
     },
