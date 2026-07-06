@@ -8,7 +8,7 @@
 // Plan detection (amount in paise):
 //   ₹29  (2900 paise)  → monthly  → 30 days
 //   ₹199 (19900 paise) → yearly   → 365 days
-//   ₹699 (69900 paise) → lifetime → permanent (null expiry)
+//   ₹499 (49900 paise) → lifetime → permanent (null expiry)
 //
 // Renewal logic (Option B):
 //   New expiry = MAX(current_expiry, now) + plan_days
@@ -21,7 +21,7 @@ const { supabase, getExtensionId } = require('../config/supabase');
 function getPlanFromAmount(amountPaise) {
   if (amountPaise <= 3000) return { name: 'monthly', days: 30 };
   if (amountPaise <= 20000) return { name: 'yearly', days: 365 };
-  // ₹699+ = lifetime
+  // ₹499+ = lifetime
   return { name: 'lifetime', days: null };
 }
 

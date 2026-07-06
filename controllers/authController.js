@@ -167,7 +167,7 @@ function sendDay7ReminderEmail(email, name) {
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h4 style="color: #FF0000; margin-top: 0;">Premium Plans:</h4>
-        <p><strong>₹29/month</strong>, <strong>₹199/year</strong> (save 43%) or <strong>₹699 lifetime</strong> 🔥 (limited-time launch price)</p>
+        <p><strong>₹29/month</strong>, <strong>₹199/year</strong> (save 43%) or <strong>₹499 lifetime</strong> 🔥 (limited-time launch price)</p>
       </div>
 
       <p style="text-align: center; margin: 30px 0;">
