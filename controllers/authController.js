@@ -167,7 +167,7 @@ function sendDay7ReminderEmail(email, name) {
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h4 style="color: #FF0000; margin-top: 0;">Premium Plans:</h4>
-        <p><strong>₹29/month</strong>, <strong>₹199/year</strong> (save 43%) or <strong>₹699 lifetime</strong></p>
+        <p><strong>₹29/month</strong>, <strong>₹199/year</strong> (save 43%) or <strong>₹699 lifetime</strong> 🔥 (limited-time launch price)</p>
       </div>
 
       <p style="text-align: center; margin: 30px 0;">
@@ -511,7 +511,6 @@ exports.verifyCode = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
-    // Get leftoff extension ID (creates the row if missing)
     const extensionId = await getExtensionId();
 
     const { data: user, error } = await supabase
@@ -522,10 +521,24 @@ exports.getUser = async (req, res) => {
       .single();
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Server-side expiry enforcement: if a monthly/yearly sub expired, downgrade now
+    if (
+      user.is_premium &&
+      user.premium_expires_at !== null &&
+      new Date(user.premium_expires_at).getTime() < Date.now()
+    ) {
+      console.log(`[GetUser] Premium expired for ${user.email} — downgrading to FREE`);
+      await supabase
+        .from('extension_users')
+        .update({ tier: 'FREE', is_premium: false, is_in_trial: false })
+        .eq('id', user.id);
+
+      user.tier = 'FREE';
+      user.is_premium = false;
+      user.is_in_trial = false;
     }
 
     res.status(200).json({
@@ -539,16 +552,14 @@ exports.getUser = async (req, res) => {
         isInTrial: user.is_in_trial,
         trialStartDate: user.trial_start_date,
         trialEndDate: user.trial_end_date,
-        emailVerified: user.email_verified
+        emailVerified: user.email_verified,
+        premiumExpiresAt: user.premium_expires_at || null,
+        premiumPlan: user.premium_plan || null,
       }
     });
 
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching user',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error fetching user', error: error.message });
   }
 };
 
