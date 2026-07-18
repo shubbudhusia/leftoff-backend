@@ -41,21 +41,21 @@ router.post('/api/track/installation', async (req, res) => {
 
       // Initialize trial
       const trialEnd = new Date();
-      trialEnd.setDate(trialEnd.getDate() + 7);
+      trialEnd.setDate(trialEnd.getDate() + 14);
 
       await supabase.from('trial_tracking').insert({
         user_id: data[0].id,
         trial_start_date: new Date(),
         trial_end_date: trialEnd,
         trial_status: 'ACTIVE',
-        days_remaining: 7
+        days_remaining: 14
       });
 
       return res.json({
         success: true,
         message: 'User installed successfully',
         userId: data[0].id,
-        trial_days: 7
+        trial_days: 14
       });
     }
 

@@ -3,10 +3,12 @@ const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 
 // ============ TRIAL CONSTANTS ============
-const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
-const REMINDER_DAY_5 = 5 * 24 * 60 * 60 * 1000;
-const REMINDER_DAY_7 = 7 * 24 * 60 * 60 * 1000;
-const REMINDER_DAY_8 = 8 * 24 * 60 * 60 * 1000;
+const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
+// Reminder schedule for the 14-day trial. Keys ('day_5' etc.) are kept as-is —
+// they are stored in the reminders_sent DB column and matched by string.
+const REMINDER_DAY_5 = 12 * 24 * 60 * 60 * 1000;  // 2 days left
+const REMINDER_DAY_7 = 14 * 24 * 60 * 60 * 1000;  // last day
+const REMINDER_DAY_8 = 15 * 24 * 60 * 60 * 1000;  // expired
 
 // ============ HELPER FUNCTIONS ============
 
