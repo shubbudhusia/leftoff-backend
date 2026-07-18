@@ -318,7 +318,33 @@ exports.signup = async (req, res) => {
     // Generate LeftOff ID and verification code
     const leftOffId = generateLeftOffId();
     const verificationCode = generateVerificationCode();
-    const trialEndDate = getTrialEndDate();
+
+    // "Try first, sign up later": if this device already ran an anonymous
+    // trial, the account INHERITS those original dates — signing up never
+    // grants a second 14 days. No device record = normal fresh trial.
+    let trialStartDate = new Date();
+    let trialEndDate = getTrialEndDate();
+    const { fingerprint } = req.body;
+
+    if (typeof fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(fingerprint)) {
+      const { data: device } = await supabase
+        .from('trial_devices')
+        .select('trial_start_date, trial_end_date')
+        .eq('fingerprint', fingerprint)
+        .single();
+
+      if (device) {
+        trialStartDate = new Date(device.trial_start_date);
+        trialEndDate = new Date(device.trial_end_date);
+        // Link the device to this account for analytics/anti-abuse
+        supabase
+          .from('trial_devices')
+          .update({ converted_email: email.toLowerCase(), updated_at: new Date() })
+          .eq('fingerprint', fingerprint)
+          .then(() => {}, (e) => console.error('[Signup] Device link failed:', e.message));
+        console.log('[Signup] Inherited device trial dates for', email);
+      }
+    }
 
     // Create new user
     const { data: newUser, error: insertError } = await supabase
@@ -331,9 +357,9 @@ exports.signup = async (req, res) => {
           left_off_id: leftOffId,
           verification_code: verificationCode,
           tier: 'TRIAL',
-          trial_start_date: new Date(),
+          trial_start_date: trialStartDate,
           trial_end_date: trialEndDate,
-          is_in_trial: true,
+          is_in_trial: trialEndDate.getTime() > Date.now(),
           is_premium: false
         }
       ])
