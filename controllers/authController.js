@@ -109,7 +109,7 @@ function sendDay5ReminderEmail(email, name, daysLeft) {
     subject: `⏰ Your LeftOff trial ends in ${daysLeft} days!`,
     html: `
       <h2>Hi ${name}! ⏰</h2>
-      <p>Your <strong>7-day free trial</strong> expires in <strong>${daysLeft} days</strong>.</p>
+      <p>Your <strong>14-day free trial</strong> expires in <strong>${daysLeft} days</strong>.</p>
 
       <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 15px; margin: 20px 0; border-radius: 4px;">
         <h3 style="margin-top: 0; color: #ff6f00;">Unlock Unlimited Video Tracking</h3>
@@ -160,7 +160,7 @@ function sendDay7ReminderEmail(email, name) {
     subject: '🚨 Last day! Your LeftOff trial expires today',
     html: `
       <h2>Last Chance! 🚨</h2>
-      <p>Your <strong>7-day free trial expires TODAY</strong>.</p>
+      <p>Your <strong>14-day free trial expires TODAY</strong>.</p>
 
       <div style="background: #ffebee; border-left: 4px solid #FF0000; padding: 15px; margin: 20px 0; border-radius: 4px;">
         <h3 style="margin-top: 0; color: #c62828;">Act Now!</h3>
@@ -209,7 +209,7 @@ function sendTrialExpiredEmail(email, name) {
     html: `
       <h2>Trial Period Ended</h2>
       <p>Hi ${name},</p>
-      <p>Your <strong>7-day free trial</strong> has ended. Your account has been switched to <strong>Free (Read-Only) mode</strong>.</p>
+      <p>Your <strong>14-day free trial</strong> has ended. Your account has been switched to <strong>Free (Read-Only) mode</strong>.</p>
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h4>What You Can Still Do (Free Mode):</h4>
@@ -572,9 +572,12 @@ exports.getUser = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
+        // NOTE: left_off_id is deliberately NOT returned here. This endpoint is
+        // public (no auth), and left_off_id is the credential that protects
+        // /api/sync. Leaking it for any email would let anyone read another
+        // user's synced history. The extension gets its own id from signup/verify.
         fullName: user.full_name,
         email: user.email,
-        leftOffId: user.left_off_id,
         tier: user.tier,
         isPremium: user.is_premium,
         isInTrial: user.is_in_trial,
