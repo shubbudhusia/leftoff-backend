@@ -2,179 +2,12 @@ const express = require('express');
 const router = express.Router();
 
 // Use the shared, validated Supabase client
-const { supabase } = require('./config/supabase');
-
-// ============ TRACK USER INSTALLATION ============
-router.post('/api/track/installation', async (req, res) => {
-  try {
-    const { email, name, browser, browserVersion, os, referralSource, deviceType, country } = req.body;
-
-    // Check if user already exists
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
-
-    if (!existing) {
-      const { data, error } = await supabase.from('users').insert({
-        email,
-        name: name || email.split('@')[0],
-        browser,
-        browser_version: browserVersion,
-        os,
-        referral_source: referralSource,
-        device_type: deviceType,
-        country: country || 'Unknown',
-        installation_date: new Date(),
-        extension_version: req.body.extensionVersion || '1.1.0'
-      }).select();
-
-      if (error) throw error;
-
-      // Create activity record
-      await supabase.from('user_activity').insert({
-        user_id: data[0].id,
-        total_videos_queued: 0,
-        total_videos_watched: 0
-      });
-
-      // Initialize trial
-      const trialEnd = new Date();
-      trialEnd.setDate(trialEnd.getDate() + 14);
-
-      await supabase.from('trial_tracking').insert({
-        user_id: data[0].id,
-        trial_start_date: new Date(),
-        trial_end_date: trialEnd,
-        trial_status: 'ACTIVE',
-        days_remaining: 14
-      });
-
-      return res.json({
-        success: true,
-        message: 'User installed successfully',
-        userId: data[0].id,
-        trial_days: 14
-      });
-    }
-
-    res.json({ success: true, message: 'User already exists' });
-  } catch (error) {
-    console.error('Installation tracking error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============ TRACK VIDEO ACTIVITY ============
-router.post('/api/track/video-activity', async (req, res) => {
-  try {
-    const { email, videoId, title, duration, watchedTime, action } = req.body;
-
-    // Get user
-    const { data: user } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Get current activity
-    const { data: activity } = await supabase
-      .from('user_activity')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    let updates = {
-      last_active_date: new Date(),
-      weekly_active_status: 'ACTIVE'
-    };
-
-    if (action === 'added') {
-      updates.total_videos_queued = (activity?.total_videos_queued || 0) + 1;
-    } else if (action === 'watched') {
-      updates.total_videos_watched = (activity?.total_videos_watched || 0) + 1;
-      updates.total_watch_time_hours = (activity?.total_watch_time_hours || 0) + (watchedTime / 3600);
-    } else if (action === 'abandoned') {
-      updates.abandoned_videos = (activity?.abandoned_videos || 0) + 1;
-    }
-
-    // Calculate watch rate
-    const total = updates.total_videos_queued || activity?.total_videos_queued || 0;
-    const watched = updates.total_videos_watched || activity?.total_videos_watched || 0;
-    if (total > 0) {
-      updates.watch_rate_percentage = (watched / total) * 100;
-    }
-
-    // Update activity
-    await supabase
-      .from('user_activity')
-      .update(updates)
-      .eq('user_id', user.id);
-
-    // Log event
-    await supabase.from('extension_events').insert({
-      user_id: user.id,
-      event_type: action,
-      event_data: {
-        videoId,
-        title,
-        duration,
-        watchedTime
-      },
-      event_date: new Date()
-    });
-
-    res.json({ success: true, message: 'Activity tracked' });
-  } catch (error) {
-    console.error('Activity tracking error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============ GET USER DASHBOARD DATA ============
-router.get('/api/user/dashboard/:email', async (req, res) => {
-  try {
-    const { email } = req.params;
-
-    const { data: user } = await supabase
-      .from('users')
-      .select(`
-        *,
-        trial_tracking(*),
-        user_activity(*),
-        payments(*)
-      `)
-      .eq('email', email)
-      .single();
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Get latest metrics
-    const { data: metrics } = await supabase
-      .from('dashboard_metrics')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    res.json({
-      success: true,
-      user,
-      metrics
-    });
-  } catch (error) {
-    console.error('Dashboard error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+const { supabase, getExtensionId } = require('./config/supabase');
 
 // ============ GET ADMIN ANALYTICS ============
+// Reads the tables the app actually writes to (extension_users, trial_devices).
+// The previous version queried a 'users'/'payments' schema that was never
+// wired up by any real signup or webhook flow, so it always crashed.
 router.get('/api/admin/analytics', async (req, res) => {
   try {
     // Check admin key
@@ -182,51 +15,92 @@ router.get('/api/admin/analytics', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
-    // Total users
-    const { count: totalUsers } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true });
+    const extensionId = await getExtensionId();
 
-    // Indian users
-    const { count: indianUsers } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true })
-      .eq('country', 'India');
+    const [
+      { data: users, error: usersErr },
+      { data: devices, error: devicesErr },
+      { data: payments, error: paymentsErr }
+    ] = await Promise.all([
+      supabase.from('extension_users').select('*').eq('extension_id', extensionId),
+      supabase.from('trial_devices').select('created_at, converted_email'),
+      supabase.from('payments').select('amount, currency, gateway, plan, paid_at')
+    ]);
 
-    // Premium users
-    const { data: premiumUsers } = await supabase
-      .from('payments')
-      .select('user_id', { distinct: true })
-      .eq('payment_status', 'COMPLETED')
-      .gt('plan_end_date', new Date().toISOString());
+    if (usersErr) throw usersErr;
+    if (devicesErr) throw devicesErr;
+    // The payments table is optional: if the migration hasn't been run yet,
+    // report the rest of the analytics rather than failing the whole request.
+    if (paymentsErr) {
+      console.warn('[Analytics] payments table unavailable:', paymentsErr.message);
+    }
 
-    // Revenue by country
-    const { data: payments } = await supabase
-      .from('payments')
-      .select('user_id, total_paid, currency, payment_gateway, created_at');
+    const totalSignups = users.length;
+    const verifiedUsers = users.filter(u => u.email_verified).length;
+    const premiumUsers = users.filter(u => u.is_premium).length;
+    const trialUsers = users.filter(u => u.tier === 'TRIAL' && u.is_in_trial).length;
+    const freeUsers = users.filter(u => u.tier === 'FREE' && !u.is_premium).length;
 
-    const users = await supabase.from('users').select('id, country');
-    const userMap = new Map(users.data.map(u => [u.id, u.country]));
-
-    let revenueByCountry = {};
-    let revenueByGateway = {};
-
-    payments.forEach(p => {
-      const country = userMap.get(p.user_id) || 'Unknown';
-      revenueByCountry[country] = (revenueByCountry[country] || 0) + p.total_paid;
-      revenueByGateway[p.payment_gateway] = (revenueByGateway[p.payment_gateway] || 0) + p.total_paid;
+    const premiumByPlan = {};
+    users.filter(u => u.is_premium).forEach(u => {
+      const plan = u.premium_plan || 'unknown';
+      premiumByPlan[plan] = (premiumByPlan[plan] || 0) + 1;
     });
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const signupsLast7Days = users.filter(u => u.created_at && (now - new Date(u.created_at).getTime()) < 7 * DAY).length;
+    const signupsLast30Days = users.filter(u => u.created_at && (now - new Date(u.created_at).getTime()) < 30 * DAY).length;
+
+    // Anonymous device trials = raw installs (no signup required to try LeftOff)
+    const totalDeviceTrials = devices.length;
+    const devicesConverted = devices.filter(d => d.converted_email).length;
+    const deviceTrialsLast7Days = devices.filter(d => d.created_at && (now - new Date(d.created_at).getTime()) < 7 * DAY).length;
+
+    // Revenue. Currencies are reported separately — summing INR and USD into
+    // a single number would be meaningless without an FX rate.
+    const pay = payments || [];
+    const revenueByCurrency = {};
+    const revenueByGateway = {};
+    const revenueLast30DaysByCurrency = {};
+    pay.forEach(p => {
+      const cur = p.currency || 'UNKNOWN';
+      const amt = Number(p.amount) || 0;
+      revenueByCurrency[cur] = (revenueByCurrency[cur] || 0) + amt;
+      revenueByGateway[p.gateway] = (revenueByGateway[p.gateway] || 0) + amt;
+      if (p.paid_at && (now - new Date(p.paid_at).getTime()) < 30 * DAY) {
+        revenueLast30DaysByCurrency[cur] = (revenueLast30DaysByCurrency[cur] || 0) + amt;
+      }
+    });
+    const round2 = obj => Object.fromEntries(
+      Object.entries(obj).map(([k, v]) => [k, Math.round(v * 100) / 100])
+    );
 
     res.json({
       success: true,
       analytics: {
-        totalUsers,
-        indianUsers,
-        premiumUsers: premiumUsers?.length || 0,
-        conversionRate: ((premiumUsers?.length || 0) / (totalUsers || 1) * 100).toFixed(2),
-        revenueByCountry,
-        revenueByGateway,
-        totalPayments: payments.length
+        // Signed-up accounts
+        totalSignups,
+        verifiedUsers,
+        trialUsers,
+        freeUsers,
+        premiumUsers,
+        premiumByPlan,
+        signupConversionRate: totalSignups > 0 ? ((premiumUsers / totalSignups) * 100).toFixed(2) : '0.00',
+        signupsLast7Days,
+        signupsLast30Days,
+        // Anonymous "try first" device trials (broader funnel — includes people who never signed up)
+        totalDeviceTrials,
+        devicesConverted,
+        deviceToSignupRate: totalDeviceTrials > 0 ? ((devicesConverted / totalDeviceTrials) * 100).toFixed(2) : '0.00',
+        deviceTrialsLast7Days,
+        // Revenue (null if the payments migration hasn't been run yet)
+        payments: paymentsErr ? null : {
+          totalPayments: pay.length,
+          revenueByCurrency: round2(revenueByCurrency),
+          revenueByGateway: round2(revenueByGateway),
+          revenueLast30DaysByCurrency: round2(revenueLast30DaysByCurrency)
+        }
       }
     });
   } catch (error) {
@@ -242,11 +116,10 @@ router.get('/api/health', (req, res) => {
     status: 'LeftOff Backend Running',
     timestamp: new Date(),
     features: [
-      'User tracking',
-      'Video activity monitoring',
-      'Payment sync (Razorpay + Stripe)',
-      'Daily Excel reports',
-      'Dashboard metrics',
+      'Signup + email verification',
+      'Anonymous device trials',
+      'Payment webhooks (Razorpay + Dodo)',
+      'Cloud history sync',
       'Admin analytics'
     ]
   });

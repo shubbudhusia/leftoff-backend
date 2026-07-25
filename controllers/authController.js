@@ -1,6 +1,5 @@
 const { supabase, getExtensionId } = require('../config/supabase');
 const nodemailer = require('nodemailer');
-const jwt = require('jsonwebtoken');
 
 // ============ TRIAL CONSTANTS ============
 const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;

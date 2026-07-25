@@ -12,6 +12,24 @@
 
 const crypto = require('crypto');
 const { supabase, getExtensionId } = require('../config/supabase');
+const { recordPayment } = require('../services/record-payment');
+
+// Map a USD amount (major units) to the plan it corresponds to.
+// Prices: $3/month, $20/year, $49 lifetime. Thresholds sit between the
+// tiers so minor tax/FX variation still classifies correctly.
+function getPlanFromUsd(amount) {
+  if (amount <= 10) return 'monthly';
+  if (amount <= 35) return 'yearly';
+  return 'lifetime';
+}
+
+// Dodo reports money in minor units (cents) on most events, but some
+// payloads use a major-unit field. Prefer the minor-unit fields we know.
+function extractAmount(data) {
+  const minor = data?.total_amount ?? data?.amount ?? null;
+  if (typeof minor === 'number') return minor / 100;
+  return null;
+}
 
 function verifySignature(secret, msgId, timestamp, rawBody, signatureHeader) {
   if (!secret || !msgId || !timestamp || !signatureHeader) return false;
@@ -108,6 +126,31 @@ module.exports = async function dodoWebhook(req, res) {
         // Paid with an email that doesn't match a registered account —
         // logged for manual reconciliation via admin upgrade endpoint
         console.warn('[Dodo Webhook] ⚠️ No user found for paid email:', email);
+      }
+
+      // Revenue history — recorded after the upgrade so a failure here can
+      // never cost a paying customer their access. Only payment.succeeded
+      // carries a real transaction; subscription.* events are status changes
+      // and would otherwise record phantom revenue.
+      if (type === 'payment.succeeded') {
+        const amount = extractAmount(event.data);
+        const txnId = event.data?.payment_id || event.data?.id || req.headers['webhook-id'];
+
+        if (amount === null) {
+          console.warn('[Dodo Webhook] ⚠️ Could not read amount — payment not recorded:', txnId);
+        } else {
+          const currency = (event.data?.currency || 'USD').toUpperCase();
+          await recordPayment({
+            email,
+            gateway: 'dodo',
+            transactionId: txnId,
+            amount,
+            currency,
+            plan: currency === 'USD' ? getPlanFromUsd(amount) : null,
+            paidAt: event.data?.created_at ? new Date(event.data.created_at) : null,
+            raw: event
+          });
+        }
       }
     } else if (downgradeEvents.includes(type)) {
       if (email) {

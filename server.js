@@ -5,8 +5,6 @@ require('dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const cron = require('node-cron');
-const DataSyncService = require('./services/data-sync-service');
 const apiRoutes = require('./api-routes');
 const authRoutes = require('./routes/auth');
 const razorpayWebhook = require('./routes/razorpay-webhook');
@@ -39,38 +37,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sync', require('./routes/sync'));
 app.use('/api/trial', require('./routes/trial-device'));
 
-// Initialize data sync service
-const dataSyncService = new DataSyncService();
-
-// Schedule automatic daily sync at 2 AM
-cron.schedule('0 2 * * *', async () => {
-  console.log('\n====================================');
-  console.log('🔄 AUTOMATIC DAILY SYNC STARTED');
-  console.log('Time:', new Date().toLocaleString());
-  console.log('====================================\n');
-
-  try {
-    await dataSyncService.syncAllData();
-    console.log('\n✨ DAILY SYNC COMPLETED SUCCESSFULLY!\n');
-  } catch (error) {
-    console.error('\n❌ SYNC FAILED:', error.message);
-  }
-});
-
-// Manual sync endpoint
-app.post('/api/admin/sync-now', async (req, res) => {
-  try {
-    if (req.headers['x-admin-key'] !== process.env.ADMIN_API_KEY) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-
-    const result = await dataSyncService.syncAllData();
-    res.json({ success: true, message: 'Sync completed', timestamp: result.timestamp });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // Status endpoint
 app.get('/api/status', (req, res) => {
   res.json({
@@ -81,11 +47,8 @@ app.get('/api/status', (req, res) => {
     features: {
       supabase: !!process.env.SUPABASE_URL,
       razorpay: !!process.env.RAZORPAY_KEY_ID,
-      dodo: !!process.env.DODO_WEBHOOK_SECRET,
-      dailySync: true,
-      excel: true
-    },
-    nextSync: '02:00 AM (UTC)'
+      dodo: !!process.env.DODO_WEBHOOK_SECRET
+    }
   });
 });
 
@@ -94,13 +57,13 @@ app.listen(PORT, () => {
   console.log('\n✅ LeftOff Backend Server Started!');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`📍 Server: http://localhost:${PORT}`);
-  console.log(`📅 Scheduler: Daily sync at 2:00 AM`);
   console.log('\n🔌 Available Endpoints:');
-  console.log('  POST /api/track/installation');
-  console.log('  POST /api/track/video-activity');
-  console.log('  GET  /api/user/dashboard/:email');
+  console.log('  POST /api/auth/signup | /verify | /resend-code');
+  console.log('  GET  /api/auth/user/:email');
+  console.log('  POST /api/trial/device');
+  console.log('  POST /api/sync/save | /api/sync/load');
+  console.log('  POST /api/razorpay/webhook | /api/dodo/webhook');
   console.log('  GET  /api/admin/analytics');
-  console.log('  POST /api/admin/sync-now');
   console.log('  GET  /api/status');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 });

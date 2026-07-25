@@ -16,6 +16,7 @@
 
 const crypto = require('crypto');
 const { supabase, getExtensionId } = require('../config/supabase');
+const { recordPayment } = require('../services/record-payment');
 
 // Map payment amount (paise) → plan info
 function getPlanFromAmount(amountPaise) {
@@ -118,6 +119,19 @@ module.exports = async function razorpayWebhook(req, res) {
 
       console.log(`[Razorpay Webhook] Payment ₹${amountPaise / 100} for: ${email}`);
       await applyPremium(email, amountPaise);
+
+      // Revenue history — recorded after the upgrade so a failure here can
+      // never cost a paying customer their access.
+      await recordPayment({
+        email,
+        gateway: 'razorpay',
+        transactionId: payment.id,
+        amount: amountPaise / 100,
+        currency: payment.currency || 'INR',
+        plan: getPlanFromAmount(amountPaise).name,
+        paidAt: payment.created_at ? new Date(payment.created_at * 1000) : null,
+        raw: event
+      });
     }
 
     res.json({ received: true });
