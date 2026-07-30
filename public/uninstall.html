@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeftOff — Before you go</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #FF0000 0%, #CC0000 100%);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      max-width: 440px;
+      width: 100%;
+      padding: 36px 30px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .icon { font-size: 44px; margin-bottom: 12px; }
+    h1 { font-size: 22px; color: #1a1a1a; margin-bottom: 8px; }
+    p.sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+    .reasons { display: flex; flex-direction: column; gap: 10px; }
+    .reason-btn {
+      display: block; width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #eee;
+      border-radius: 10px;
+      background: #fafafa;
+      color: #333;
+      font-size: 14px;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .reason-btn:hover { border-color: #FF0000; background: #fff5f5; }
+    .reason-btn:active { transform: scale(0.98); }
+
+    .thanks { display: none; }
+    .thanks .icon { font-size: 52px; }
+    .thanks h1 { margin-bottom: 6px; }
+    .thanks p.sub { margin-bottom: 20px; }
+
+    .more-detail { text-align: left; }
+    .more-detail textarea {
+      width: 100%; min-height: 70px; resize: vertical;
+      border: 2px solid #eee; border-radius: 10px; padding: 10px 12px;
+      font-family: inherit; font-size: 13px; color: #333;
+      margin-bottom: 10px;
+    }
+    .more-detail textarea:focus { outline: none; border-color: #FF0000; }
+    .send-btn {
+      background: #FF0000; color: white; border: none;
+      padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      cursor: pointer;
+    }
+    .send-btn:disabled { opacity: 0.5; cursor: default; }
+    .sent-note { font-size: 12px; color: #1e8e3e; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="askScreen">
+      <div class="icon">👋</div>
+      <h1>Before you go — mind telling us why?</h1>
+      <p class="sub">One click, that's it. Totally anonymous.</p>
+      <div class="reasons">
+        <button class="reason-btn" data-reason="not_working">😕 It stopped working / had a bug</button>
+        <button class="reason-btn" data-reason="privacy_concern">🔒 Too many permissions / privacy concern</button>
+        <button class="reason-btn" data-reason="trial_ended">⏰ My free trial ended</button>
+        <button class="reason-btn" data-reason="found_alternative">🔄 Found something better</button>
+        <button class="reason-btn" data-reason="no_longer_needed">🤷 Just didn't need it anymore</button>
+        <button class="reason-btn" data-reason="other">✏️ Something else</button>
+      </div>
+    </div>
+
+    <div id="thanksScreen" class="thanks">
+      <div class="icon">🙏</div>
+      <h1>Thanks for letting us know</h1>
+      <p class="sub">This genuinely helps us improve LeftOff.</p>
+      <div class="more-detail">
+        <textarea id="detailBox" placeholder="Want to tell us more? (optional)" maxlength="1000"></textarea>
+        <button class="send-btn" id="sendDetailBtn">Send</button>
+        <div class="sent-note" id="sentNote">Sent — thank you!</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND_URL = 'https://leftoff-backend.onrender.com';
+    const params = new URLSearchParams(window.location.search);
+    const extensionVersion = params.get('v') || null;
+
+    const askScreen = document.getElementById('askScreen');
+    const thanksScreen = document.getElementById('thanksScreen');
+    const detailBox = document.getElementById('detailBox');
+    const sendDetailBtn = document.getElementById('sendDetailBtn');
+    const sentNote = document.getElementById('sentNote');
+
+    let currentReason = null;
+
+    function submitFeedback(reason, details) {
+      // sendBeacon works even if the tab closes immediately after — important
+      // since people often close this tab within a second of it opening.
+      const payload = JSON.stringify({ reason, details: details || null, extensionVersion });
+      if (navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon(BACKEND_URL + '/api/uninstall-feedback', blob);
+      } else {
+        fetch(BACKEND_URL + '/api/uninstall-feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true
+        }).catch(() => {});
+      }
+    }
+
+    document.querySelectorAll('.reason-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        currentReason = btn.dataset.reason;
+        submitFeedback(currentReason, null);
+        askScreen.style.display = 'none';
+        thanksScreen.style.display = 'block';
+      });
+    });
+
+    sendDetailBtn.addEventListener('click', () => {
+      const text = detailBox.value.trim();
+      if (!text || !currentReason) return;
+      submitFeedback(currentReason, text);
+      sendDetailBtn.disabled = true;
+      detailBox.disabled = true;
+      sentNote.style.display = 'block';
+    });
+  </script>
+</body>
+</html>

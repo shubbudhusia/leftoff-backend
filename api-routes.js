@@ -20,11 +20,13 @@ router.get('/api/admin/analytics', async (req, res) => {
     const [
       { data: users, error: usersErr },
       { data: devices, error: devicesErr },
-      { data: payments, error: paymentsErr }
+      { data: payments, error: paymentsErr },
+      { data: uninstalls, error: uninstallsErr }
     ] = await Promise.all([
       supabase.from('extension_users').select('*').eq('extension_id', extensionId),
       supabase.from('trial_devices').select('created_at, converted_email'),
-      supabase.from('payments').select('amount, currency, gateway, plan, paid_at')
+      supabase.from('payments').select('amount, currency, gateway, plan, paid_at'),
+      supabase.from('uninstall_feedback').select('reason, details, created_at')
     ]);
 
     if (usersErr) throw usersErr;
@@ -33,6 +35,9 @@ router.get('/api/admin/analytics', async (req, res) => {
     // report the rest of the analytics rather than failing the whole request.
     if (paymentsErr) {
       console.warn('[Analytics] payments table unavailable:', paymentsErr.message);
+    }
+    if (uninstallsErr) {
+      console.warn('[Analytics] uninstall_feedback table unavailable:', uninstallsErr.message);
     }
 
     const totalSignups = users.length;
@@ -100,12 +105,65 @@ router.get('/api/admin/analytics', async (req, res) => {
           revenueByCurrency: round2(revenueByCurrency),
           revenueByGateway: round2(revenueByGateway),
           revenueLast30DaysByCurrency: round2(revenueLast30DaysByCurrency)
+        },
+        // Uninstall feedback (null if the migration hasn't been run yet)
+        uninstallFeedback: uninstallsErr ? null : {
+          totalResponses: uninstalls.length,
+          byReason: uninstalls.reduce((acc, u) => {
+            acc[u.reason] = (acc[u.reason] || 0) + 1;
+            return acc;
+          }, {}),
+          // Most recent free-text comments, newest first — the qualitative
+          // detail that raw counts can't give you
+          recentComments: uninstalls
+            .filter(u => u.details)
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(0, 10)
+            .map(u => ({ reason: u.reason, details: u.details }))
         }
       }
     });
   } catch (error) {
     console.error('Analytics error:', error.message);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============ UNINSTALL FEEDBACK ============
+// Called by public/uninstall.html — the page Chrome opens automatically
+// right after someone uninstalls (chrome.runtime.setUninstallURL). No auth:
+// the extension is already gone by the time this fires, so there's no
+// logged-in user to authenticate as. No personal data is collected.
+const VALID_UNINSTALL_REASONS = [
+  'not_working',
+  'privacy_concern',
+  'trial_ended',
+  'found_alternative',
+  'no_longer_needed',
+  'other'
+];
+
+router.post('/api/uninstall-feedback', async (req, res) => {
+  try {
+    const { reason, details, extensionVersion } = req.body || {};
+
+    if (!VALID_UNINSTALL_REASONS.includes(reason)) {
+      return res.status(400).json({ success: false, error: 'Invalid reason' });
+    }
+
+    const { error } = await supabase.from('uninstall_feedback').insert({
+      reason,
+      details: typeof details === 'string' ? details.slice(0, 1000) : null,
+      extension_version: typeof extensionVersion === 'string' ? extensionVersion.slice(0, 20) : null
+    });
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Uninstall feedback error:', error.message);
+    // Still return success — a failed write here should never surface as an
+    // error to someone who already uninstalled and is just trying to help.
+    res.json({ success: true });
   }
 });
 
