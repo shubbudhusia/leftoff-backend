@@ -20,4 +20,7 @@ router.post('/process-reminders', authController.processTrialReminders);
 // POST /api/auth/upgrade-to-premium
 router.post('/upgrade-to-premium', authController.upgradeToPremium);
 
+// POST /api/auth/redeem-independence-offer (India-only, through Aug 15)
+router.post('/redeem-independence-offer', authController.redeemIndependenceOffer);
+
 module.exports = router;

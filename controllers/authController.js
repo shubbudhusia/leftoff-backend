@@ -823,6 +823,168 @@ exports.upgradeToPremium = async (req, res) => {
   }
 };
 
+// ============ INDEPENDENCE DAY OFFER (India-only, 90 days free) ============
+
+const INDEPENDENCE_OFFER_START = new Date('2026-08-04T00:00:00+05:30');
+const INDEPENDENCE_OFFER_END = new Date('2026-08-15T23:59:59+05:30');
+const INDEPENDENCE_OFFER_DAYS = 90;
+const INDEPENDENCE_OFFER_PLAN = 'independence_2026';
+
+// Free, keyless, HTTPS geo-IP lookup. Low volume (marketing promo on a
+// ~76-install extension) so a third-party API is fine — no need to ship a
+// local GeoIP database for this.
+async function lookupCountry(ip) {
+  try {
+    const resp = await fetch(`https://ipwho.is/${ip}`);
+    const data = await resp.json();
+    if (!data.success) return null;
+    return data.country_code || null; // e.g. 'IN'
+  } catch (err) {
+    console.error('[Independence Offer] Geo-IP lookup failed:', err.message);
+    return null;
+  }
+}
+
+function getRequestIp(req) {
+  // x-forwarded-for can be a comma-separated chain; the first entry is the
+  // original client. req.ip already resolves this correctly once
+  // app.set('trust proxy', true) is set, but fall back just in case.
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.ip;
+}
+
+exports.redeemIndependenceOffer = async (req, res) => {
+  try {
+    const now = new Date();
+    if (now < INDEPENDENCE_OFFER_START || now > INDEPENDENCE_OFFER_END) {
+      return res.status(400).json({
+        success: false,
+        message: 'This offer is only available until Aug 15.'
+      });
+    }
+
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const ip = getRequestIp(req);
+    const country = await lookupCountry(ip);
+
+    if (country !== 'IN') {
+      return res.status(403).json({
+        success: false,
+        message: 'This Independence Day offer is only available for users in India.'
+      });
+    }
+
+    const extensionId = await getExtensionId();
+    const { data: users, error: fetchErr } = await supabase
+      .from('extension_users')
+      .select('id, full_name, is_premium, premium_expires_at, premium_plan, email_verified')
+      .eq('email', email.toLowerCase())
+      .eq('extension_id', extensionId)
+      .limit(1);
+
+    if (fetchErr) throw fetchErr;
+    if (!users || users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No LeftOff account found for this email — sign up first, then redeem the offer.'
+      });
+    }
+
+    const user = users[0];
+
+    // The real ownership proof: signup() creates a row immediately, before
+    // the emailed verification code is ever entered — without this check,
+    // anyone could POST an email they don't own and claim Premium on it.
+    // IP geolocation alone proves a request came from India, not that the
+    // requester controls this inbox.
+    if (!user.email_verified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email first — check your inbox for the code, then try again.'
+      });
+    }
+
+    if (user.premium_plan === INDEPENDENCE_OFFER_PLAN) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already redeemed this offer.'
+      });
+    }
+
+    // Extend from current expiry if they're already Premium and it's later
+    // than now (Option B, same rule the Razorpay webhook uses) — otherwise
+    // 90 days from today.
+    const existingExpiry = user.premium_expires_at
+      ? new Date(user.premium_expires_at).getTime()
+      : 0;
+    const base = Math.max(existingExpiry, Date.now());
+    const newExpiry = new Date(base + INDEPENDENCE_OFFER_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+    // .neq() on the write closes the TOCTOU gap between the read above and
+    // this write — two rapid duplicate requests (double-click, retry) can't
+    // both pass, because only the first one still finds a non-matching row
+    // to update. The second gets back zero rows and is treated as "already
+    // redeemed" below, instead of both silently succeeding.
+    const { data: updated, error: updateErr } = await supabase
+      .from('extension_users')
+      .update({
+        tier: 'PREMIUM',
+        is_premium: true,
+        premium_since: user.is_premium ? undefined : new Date().toISOString(),
+        is_in_trial: false,
+        trial_end_date: null,
+        premium_expires_at: newExpiry,
+        premium_plan: INDEPENDENCE_OFFER_PLAN
+      })
+      .eq('id', user.id)
+      // Plain .neq() would silently exclude every row where premium_plan is
+      // NULL (SQL: NULL != 'x' evaluates to NULL, not true) — which is
+      // nearly everyone, since no one has redeemed anything yet. Needs to
+      // match "not this promo" OR "no plan at all".
+      .or(`premium_plan.neq.${INDEPENDENCE_OFFER_PLAN},premium_plan.is.null`)
+      .select();
+
+    if (updateErr) throw updateErr;
+    if (!updated || updated.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already redeemed this offer.'
+      });
+    }
+
+    console.log(`[Independence Offer] ✅ ${email} → Premium until ${newExpiry}`);
+
+    sendEmail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      // No flag emoji — Outlook and other Windows mail clients render
+      // flag-sequence emoji as literal letters ("IN") instead of a flag.
+      subject: 'Happy Independence Day — 90 days of LeftOff Premium, on us!',
+      html: `
+        <h2>Happy Independence Day, ${user.full_name || ''}!</h2>
+        <p>You now have <strong>90 days of LeftOff Premium</strong> — completely free.</p>
+        <p>Premium is active until <strong>${new Date(newExpiry).toDateString()}</strong>.</p>
+        <p>No card, no catch. Enjoy!</p>
+      `
+    }, () => {});
+
+    res.status(200).json({
+      success: true,
+      message: '90 days of Premium unlocked!',
+      premiumExpiresAt: newExpiry
+    });
+
+  } catch (error) {
+    console.error('[Independence Offer] Error:', error);
+    res.status(500).json({ success: false, message: 'Error redeeming offer', error: error.message });
+  }
+};
+
 // Send premium welcome email
 function sendPremiumWelcomeEmail(email, name) {
   const mailOptions = {

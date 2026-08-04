@@ -16,6 +16,11 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Render sits behind a reverse proxy — without this, req.ip is Render's
+// internal proxy address, not the visitor's real IP. Needed for the
+// Independence Day offer's India-only geo check.
+app.set('trust proxy', true);
+
 // Middleware
 app.use(cors());
 

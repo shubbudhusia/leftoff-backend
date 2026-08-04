@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeftOff — Independence Day Offer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      /* Same darkened saffron→green as the extension banner — #FF9933 fails
+         WCAG contrast with white text (~2.1:1), #B35900 passes (~4.8:1). */
+      background: linear-gradient(135deg, #B35900 0%, #138808 100%);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      max-width: 440px;
+      width: 100%;
+      padding: 36px 30px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .icon { font-size: 44px; margin-bottom: 12px; }
+    h1 { font-size: 22px; color: #1a1a1a; margin-bottom: 8px; }
+    p.sub { color: #666; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+
+    label { display: block; text-align: left; font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; }
+    input[type="email"] {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #eee;
+      border-radius: 10px;
+      font-size: 15px;
+      font-family: inherit;
+      color: #1a1a1a;
+      margin-bottom: 14px;
+    }
+    input[type="email"]:focus { outline: none; border-color: #B35900; }
+
+    .claim-btn {
+      width: 100%;
+      background: linear-gradient(135deg, #B35900 0%, #138808 100%);
+      color: white;
+      border: none;
+      padding: 13px 18px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    .claim-btn:hover { transform: scale(1.02); }
+    .claim-btn:active { transform: scale(0.98); }
+    .claim-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+    .msg {
+      margin-top: 14px;
+      font-size: 13px;
+      line-height: 1.5;
+      display: none;
+    }
+    .msg.error { color: #c62828; }
+    .msg.success { color: #1e8e3e; }
+
+    .no-account {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #999;
+    }
+    .no-account a { color: #B35900; font-weight: 600; text-decoration: none; }
+
+    .success-screen { display: none; }
+    .success-screen .icon { font-size: 52px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="formScreen">
+      <!-- Not the 🇮🇳 emoji — flag-sequence emoji render as literal letters
+           ("IN") on Windows, which is most of this product's user base. -->
+      <svg width="52" height="35" viewBox="0 0 28 19" style="margin-bottom: 12px;">
+        <rect width="28" height="6.33" y="0" fill="#B35900"/>
+        <rect width="28" height="6.33" y="6.33" fill="#FFFFFF"/>
+        <rect width="28" height="6.34" y="12.66" fill="#138808"/>
+        <circle cx="14" cy="9.5" r="2.2" fill="none" stroke="#000080" stroke-width="0.5"/>
+      </svg>
+      <h1>90 Days of Premium — Free</h1>
+      <p class="sub">Happy Independence Day! Enter the email on your LeftOff account to claim 90 days of Premium, no card needed. India only, through Aug 15.</p>
+
+      <label for="emailInput">Your LeftOff account email</label>
+      <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email">
+
+      <button class="claim-btn" id="claimBtn">Claim 90 Days Free</button>
+
+      <div class="msg" id="msgBox" role="alert" aria-live="polite"></div>
+
+      <p class="no-account">
+        Don't have a LeftOff account yet?
+        <a href="https://chromewebstore.google.com/search/LeftOff" target="_blank" rel="noopener">Install the extension</a>
+        and sign up first.
+      </p>
+    </div>
+
+    <div id="successScreen" class="success-screen">
+      <div class="icon">🎉</div>
+      <h1>You're all set!</h1>
+      <p class="sub" id="successDetail"></p>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND_URL = window.location.origin;
+
+    const formScreen = document.getElementById('formScreen');
+    const successScreen = document.getElementById('successScreen');
+    const successDetail = document.getElementById('successDetail');
+    const emailInput = document.getElementById('emailInput');
+    const claimBtn = document.getElementById('claimBtn');
+    const msgBox = document.getElementById('msgBox');
+
+    function showMessage(text, type) {
+      msgBox.textContent = text;
+      msgBox.className = 'msg ' + type;
+      msgBox.style.display = 'block';
+    }
+
+    // Prefill from a shared/DM link, e.g. claim-independence.html?email=foo@bar.com
+    const params = new URLSearchParams(window.location.search);
+    const prefillEmail = params.get('email');
+    if (prefillEmail) emailInput.value = prefillEmail;
+
+    async function claim() {
+      const email = emailInput.value.trim();
+      if (!email || !email.includes('@')) {
+        showMessage('Enter the email you used to sign up for LeftOff.', 'error');
+        return;
+      }
+
+      claimBtn.disabled = true;
+      claimBtn.textContent = 'Checking...';
+      msgBox.style.display = 'none';
+
+      try {
+        const res = await fetch(BACKEND_URL + '/api/auth/redeem-independence-offer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const json = await res.json();
+
+        if (json.success) {
+          const until = json.premiumExpiresAt ? new Date(json.premiumExpiresAt).toDateString() : '';
+          successDetail.textContent = until
+            ? `Premium is active on your LeftOff account until ${until}. Open the extension to see it.`
+            : 'Premium is now active on your LeftOff account. Open the extension to see it.';
+          formScreen.style.display = 'none';
+          successScreen.style.display = 'block';
+        } else {
+          showMessage(json.message || 'Something went wrong — try again.', 'error');
+          claimBtn.disabled = false;
+          claimBtn.textContent = 'Claim 90 Days Free';
+        }
+      } catch (err) {
+        showMessage('Network error — check your connection and try again.', 'error');
+        claimBtn.disabled = false;
+        claimBtn.textContent = 'Claim 90 Days Free';
+      }
+    }
+
+    claimBtn.addEventListener('click', claim);
+    emailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') claim();
+    });
+  </script>
+</body>
+</html>
