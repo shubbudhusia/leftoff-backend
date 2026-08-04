@@ -916,6 +916,18 @@ exports.redeemIndependenceOffer = async (req, res) => {
       });
     }
 
+    // Someone already on Premium (paid, or manually granted) must be turned
+    // away here, not silently modified below. A manually-granted permanent
+    // account has premium_expires_at = NULL, same as "no plan yet" — without
+    // this check, claiming would set a 90-day expiry on an account that
+    // previously had none, turning permanent access into a countdown.
+    if (user.is_premium) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have Premium — this offer is for trial/free users.'
+      });
+    }
+
     // Extend from current expiry if they're already Premium and it's later
     // than now (Option B, same rule the Razorpay webhook uses) — otherwise
     // 90 days from today.
