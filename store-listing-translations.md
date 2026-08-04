@@ -13,6 +13,16 @@ The product name "LeftOff" stays untranslated everywhere — it's a brand name.
 
 ---
 
+## 🇬🇧 English (default listing — not stored in any tracked file, update the dashboard's default entry directly)
+
+**Why this exists:** every language below (and the live default English listing) used to say "free for 14 days... create an account only if you want to continue" — the old hard-lock framing. As of the Free/Premium rewrite, that's wrong: Resume stays free forever even if you never pay; only Add to Queue and Finish Mode need Trial/Premium. Update the dashboard's English listing with this corrected paragraph (rest of the English listing likely doesn't need changes — only the intro/access-model paragraph does):
+
+**Corrected paragraph:**
+▶ START INSTANTLY — NO SIGNUP
+Install and start using it immediately, no account needed. Every feature (Queue, Finish Mode, Resume) is free for 14 days. After that, Resume — picking up exactly where you left off — stays free forever, even if you never pay. Only Add to Queue and Finish Mode need an upgrade.
+
+---
+
 ## 🇮🇳 Hindi (hi)
 
 **Title:**
@@ -25,7 +35,7 @@ YouTube पर जहां छोड़ा था वहीं से शुर
 क्या आप YouTube पर एक वीडियो देखने आते हैं और एक घंटा गंवा देते हैं? या कोई अच्छा वीडियो शुरू करते हैं, बीच में कहीं और चले जाते हैं, और फिर कभी नहीं ढूंढ पाते? LeftOff इसे ठीक करता है।
 
 ▶ तुरंत शुरू करें — कोई साइनअप नहीं
-इंस्टॉल करें और तुरंत इस्तेमाल करें। 14 दिन मुफ़्त, कोई अकाउंट ज़रूरी नहीं। जारी रखने के लिए ही अकाउंट बनाएं।
+इंस्टॉल करें और बिना अकाउंट के तुरंत इस्तेमाल शुरू करें। हर फ़ीचर (Queue, Finish Mode, Resume) 14 दिन मुफ़्त। उसके बाद भी Resume हमेशा मुफ़्त रहता है — चाहे आप कभी पैसे न दें। सिर्फ़ Add to Queue और Finish Mode के लिए अपग्रेड चाहिए।
 
 LEFTOFF क्या करता है
 
@@ -68,7 +78,7 @@ YouTubeを続きから再生、大事な動画をキューに追加、Finish Mod
 動画を1本見ようとしただけなのに、気づけば1時間経っていた。良い動画を見始めたのに、途中で離れてしまい、二度と見つけられない。LeftOffはこの問題を解決します。
 
 ▶ すぐに使える — サインアップ不要
-インストールしてすぐ使い始められます。14日間無料、アカウント不要。続けたいときだけアカウントを作成してください。
+インストールしてアカウントなしですぐ使い始められます。すべての機能(キュー、Finish Mode、続きから再生)が14日間無料。それ以降も「続きから再生」はずっと無料のまま——キューへの追加とFinish Modeだけアップグレードが必要です。
 
 LEFTOFFの機能
 
@@ -111,7 +121,7 @@ Reanuda YouTube donde lo dejaste, organiza lo importante en una cola y usa Finis
 ¿Abres YouTube para ver un video y pierdes una hora? ¿O empiezas un video genial, te distraes, y nunca más lo encuentras? LeftOff soluciona eso.
 
 ▶ EMPIEZA AL INSTANTE — SIN REGISTRO
-Instálalo y úsalo de inmediato. Gratis por 14 días, sin necesidad de cuenta. Crea una cuenta gratuita solo cuando quieras seguir usándolo.
+Instálalo y empieza a usarlo de inmediato, sin necesidad de cuenta. Todas las funciones (cola, Finish Mode, reanudar) gratis por 14 días. Después, reanudar donde lo dejaste sigue siendo gratis para siempre, aunque nunca pagues — solo agregar a la cola y Finish Mode necesitan actualizar a Premium.
 
 QUÉ HACE LEFTOFF
 
@@ -154,7 +164,7 @@ Retome o YouTube de onde parou, organize o que importa em uma fila e use o Finis
 Você abre o YouTube para ver um vídeo e acaba perdendo uma hora inteira? Ou começa um vídeo ótimo, é interrompido, e nunca mais encontra de novo? O LeftOff resolve isso.
 
 ▶ COMECE NA HORA — SEM CADASTRO
-Instale e use imediatamente. Grátis por 14 dias, sem precisar de conta. Crie uma conta gratuita só quando quiser continuar.
+Instale e comece a usar na hora, sem precisar de conta. Todos os recursos (fila, Finish Mode, retomar) grátis por 14 dias. Depois disso, retomar de onde parou continua grátis para sempre, mesmo que você nunca pague — só adicionar à fila e o Finish Mode precisam de upgrade.
 
 O QUE O LEFTOFF FAZ
 
@@ -197,7 +207,7 @@ Setze YouTube-Videos dort fort, wo du aufgehört hast, sammle wichtige Videos in
 Öffnest du YouTube, um ein Video zu schauen, und verlierst plötzlich eine ganze Stunde? Oder fängst du ein tolles Video an, wirst abgelenkt und findest es nie wieder? LeftOff löst genau das.
 
 ▶ SOFORT LOSLEGEN — OHNE ANMELDUNG
-Installieren und direkt nutzen. 14 Tage kostenlos, kein Konto nötig. Erstelle ein kostenloses Konto nur, wenn du weitermachen möchtest.
+Installieren und sofort loslegen, ganz ohne Konto. Alle Funktionen (Warteschlange, Finish Mode, Fortsetzen) 14 Tage kostenlos. Danach bleibt „genau dort weitermachen" für immer kostenlos — auch wenn du nie bezahlst. Nur das Hinzufügen zur Warteschlange und der Finish Mode brauchen ein Upgrade.
 
 WAS LEFTOFF KANN
 
@@ -240,7 +250,7 @@ Reprenez YouTube là où vous vous êtes arrêté, gardez l'essentiel dans une f
 Vous ouvrez YouTube pour regarder une vidéo et vous perdez une heure entière ? Ou vous commencez une super vidéo, vous êtes interrompu, et vous ne la retrouvez plus jamais ? LeftOff règle ce problème.
 
 ▶ COMMENCEZ INSTANTANÉMENT — SANS INSCRIPTION
-Installez et utilisez immédiatement. Gratuit pendant 14 jours, aucun compte requis. Créez un compte gratuit seulement si vous voulez continuer.
+Installez et commencez à utiliser immédiatement, sans compte. Toutes les fonctionnalités (file d'attente, Finish Mode, reprise) gratuites pendant 14 jours. Ensuite, reprendre où vous vous êtes arrêté reste gratuit pour toujours, même sans jamais payer — seuls l'ajout à la file d'attente et le Finish Mode nécessitent une mise à niveau.
 
 CE QUE FAIT LEFTOFF
 
@@ -283,7 +293,7 @@ Lanjutkan YouTube dari titik terakhir, kumpulkan video penting dalam antrean, da
 Pernah buka YouTube untuk nonton satu video, tapi tiba-tiba satu jam berlalu begitu saja? Atau mulai nonton video bagus, teralihkan, lalu tidak pernah menemukannya lagi? LeftOff mengatasi masalah ini.
 
 ▶ LANGSUNG PAKAI — TANPA DAFTAR
-Instal dan langsung gunakan. Gratis 14 hari, tanpa perlu akun. Buat akun gratis hanya jika ingin melanjutkan.
+Instal dan langsung gunakan tanpa perlu akun. Semua fitur (antrean, Finish Mode, lanjutkan) gratis 14 hari. Setelah itu, fitur lanjutkan dari titik terakhir tetap gratis selamanya — meski Anda tidak pernah membayar. Hanya menambah ke antrean dan Finish Mode yang perlu upgrade.
 
 APA YANG DILAKUKAN LEFTOFF
 
@@ -326,7 +336,7 @@ LeftOff - Продолжайте видео на YouTube с того места,
 Открываете YouTube, чтобы посмотреть одно видео, а теряете целый час? Или начинаете смотреть отличное видео, отвлекаетесь — и больше никогда его не находите? LeftOff решает эту проблему.
 
 ▶ НАЧНИТЕ СРАЗУ — БЕЗ РЕГИСТРАЦИИ
-Установите и сразу пользуйтесь. Бесплатно 14 дней, аккаунт не нужен. Создавайте бесплатный аккаунт только тогда, когда захотите продолжить.
+Установите и сразу начните пользоваться — аккаунт не нужен. Все функции (очередь, Finish Mode, продолжение) бесплатны 14 дней. После этого функция продолжения с места остановки остаётся бесплатной навсегда, даже если вы никогда не заплатите — апгрейд нужен только для добавления в очередь и Finish Mode.
 
 ЧТО ДЕЛАЕТ LEFTOFF
 

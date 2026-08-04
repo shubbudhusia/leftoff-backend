@@ -50,6 +50,28 @@ function getRemindersToSend(trialEndDate) {
   return reminders;
 }
 
+// ============ PREMIUM EXPIRY REMINDERS ============
+// Covers everyone with a time-limited premium_expires_at — real paid
+// monthly/yearly plans AND the Independence Day promo grant. Lifetime
+// accounts have premium_expires_at = NULL and are never queried here.
+//
+// Counts DOWN from the expiry date (days remaining), not up from a start
+// date like the trial reminders do — plan lengths vary wildly (30 days,
+// 90 days, 365 days), so "days remaining" is the only schedule that works
+// the same way for all of them.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function getPremiumRemindersToSend(expiresAt) {
+  const msLeft = new Date(expiresAt).getTime() - Date.now();
+  const reminders = [];
+
+  if (msLeft <= 7 * DAY_MS && msLeft > 6 * DAY_MS) reminders.push('premium_day_7');
+  if (msLeft <= 1 * DAY_MS && msLeft > 0) reminders.push('premium_day_1');
+  if (msLeft <= 0 && msLeft > -1 * DAY_MS) reminders.push('premium_expired');
+
+  return reminders;
+}
+
 // ============ EMAIL SERVICE ============
 
 const transporter = nodemailer.createTransport({
@@ -111,12 +133,11 @@ function sendDay5ReminderEmail(email, name, daysLeft) {
       <p>Your <strong>14-day free trial</strong> expires in <strong>${daysLeft} days</strong>.</p>
 
       <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 15px; margin: 20px 0; border-radius: 4px;">
-        <h3 style="margin-top: 0; color: #ff6f00;">Unlock Unlimited Video Tracking</h3>
-        <p>Upgrade to Premium and:</p>
+        <h3 style="margin-top: 0; color: #ff6f00;">Keep Add to Queue & Finish Mode</h3>
+        <p>After the trial, Resume still works free — but Premium keeps you queueing videos and using Finish Mode:</p>
         <ul>
-          <li>✓ Save unlimited YouTube videos</li>
-          <li>✓ Never lose your progress again</li>
-          <li>✓ Bulk delete & auto-delete features</li>
+          <li>✓ Add to Queue — line up what to watch next</li>
+          <li>✓ Finish Mode — distraction-free, one video at a time</li>
           <li>✓ Premium support</li>
         </ul>
       </div>
@@ -163,7 +184,7 @@ function sendDay7ReminderEmail(email, name) {
 
       <div style="background: #ffebee; border-left: 4px solid #FF0000; padding: 15px; margin: 20px 0; border-radius: 4px;">
         <h3 style="margin-top: 0; color: #c62828;">Act Now!</h3>
-        <p>After today, you'll switch to read-only mode and <strong>won't be able to add new videos</strong>.</p>
+        <p>After today, Resume keeps working free — but you'll lose <strong>Add to Queue</strong> and <strong>Finish Mode</strong> until you upgrade.</p>
       </div>
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -204,19 +225,19 @@ function sendTrialExpiredEmail(email, name) {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
-    subject: 'Your trial has ended - but you can still view your videos',
+    subject: 'Your trial has ended — Resume still works free',
     html: `
       <h2>Trial Period Ended</h2>
       <p>Hi ${name},</p>
-      <p>Your <strong>14-day free trial</strong> has ended. Your account has been switched to <strong>Free (Read-Only) mode</strong>.</p>
+      <p>Your <strong>14-day free trial</strong> has ended. Your account has been switched to <strong>Free mode</strong>.</p>
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-        <h4>What You Can Still Do (Free Mode):</h4>
+        <h4>What Still Works on Free:</h4>
         <ul>
-          <li>✓ View all your saved videos</li>
-          <li>✓ Search and filter videos</li>
-          <li>✓ Sort and organize</li>
-          <li>✗ Cannot add new videos</li>
+          <li>✓ Resume any video — pick up exactly where you left off</li>
+          <li>✓ View, search, and sort everything you've saved</li>
+          <li>✗ Add to Queue (Premium)</li>
+          <li>✗ Finish Mode (Premium)</li>
         </ul>
       </div>
 
@@ -247,6 +268,76 @@ function sendTrialExpiredEmail(email, name) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Trial Expired] Failed:', err);
       else console.log('[Trial Expired] Sent to:', email);
+      resolve();
+    });
+  });
+}
+
+// Send 7-days-left Premium expiry reminder
+function sendPremiumDay7ReminderEmail(email, name, planLabel) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: '⏰ Your LeftOff Premium ends in 7 days',
+    html: `
+      <h2>Hi ${name || ''}!</h2>
+      <p>Your <strong>${planLabel}</strong> ends in <strong>7 days</strong>.</p>
+      <p>After that you'll switch to Free mode — Resume still works free (everything you've saved stays there), but Add to Queue and Finish Mode need Premium.</p>
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="https://leftoff.com/upgrade" style="background:#FF0000;color:white;padding:12px 30px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Renew Premium</a>
+      </p>
+    `
+  };
+  return new Promise((resolve) => {
+    sendEmail(mailOptions, (err) => {
+      if (err) console.error('[Premium Day 7 Reminder] Failed:', err);
+      else console.log('[Premium Day 7 Reminder] Sent to:', email);
+      resolve();
+    });
+  });
+}
+
+// Send 1-day-left Premium expiry reminder
+function sendPremiumDay1ReminderEmail(email, name, planLabel) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: '🚨 Your LeftOff Premium ends tomorrow',
+    html: `
+      <h2>Last day tomorrow!</h2>
+      <p>Hi ${name || ''}, your <strong>${planLabel}</strong> ends <strong>tomorrow</strong>.</p>
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="https://leftoff.com/upgrade" style="background:#FF0000;color:white;padding:12px 30px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Renew Now</a>
+      </p>
+    `
+  };
+  return new Promise((resolve) => {
+    sendEmail(mailOptions, (err) => {
+      if (err) console.error('[Premium Day 1 Reminder] Failed:', err);
+      else console.log('[Premium Day 1 Reminder] Sent to:', email);
+      resolve();
+    });
+  });
+}
+
+// Send Premium-expired notice
+function sendPremiumExpiredEmail(email, name, planLabel) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: 'Your LeftOff Premium has ended',
+    html: `
+      <h2>Your ${planLabel} has ended</h2>
+      <p>Hi ${name || ''}, you're now on Free mode — Resume still works free (pick up any video exactly where you left off), but Add to Queue and Finish Mode need Premium.</p>
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="https://leftoff.com/upgrade" style="background:#FF0000;color:white;padding:12px 30px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Upgrade to Premium</a>
+      </p>
+    `
+  };
+  return new Promise((resolve) => {
+    sendEmail(mailOptions, (err) => {
+      if (err) console.error('[Premium Expired] Failed:', err);
+      else console.log('[Premium Expired] Sent to:', email);
       resolve();
     });
   });
@@ -724,10 +815,66 @@ exports.processTrialReminders = async (req, res) => {
       }
     }
 
+    // Same pass, second query: everyone with a time-limited premium plan —
+    // real paid monthly/yearly customers AND Independence Day promo grants.
+    // Riding on this same processor (and its existing daily cron trigger)
+    // rather than a separate endpoint, so no new cron needs to be set up.
+    const { data: premiumUsers, error: premiumSelectError } = await supabase
+      .from('extension_users')
+      .select('*')
+      .not('premium_expires_at', 'is', null)
+      .eq('is_premium', true);
+
+    if (premiumSelectError) throw premiumSelectError;
+
+    const PLAN_LABELS = {
+      independence_2026: 'free Independence Day Premium',
+      monthly: 'Monthly Premium plan',
+      yearly: 'Yearly Premium plan'
+    };
+
+    console.log(`[Premium Reminders] Found ${premiumUsers.length} time-limited premium users to check`);
+
+    for (const user of premiumUsers) {
+      const remindersToSend = getPremiumRemindersToSend(user.premium_expires_at);
+      const sent = user.reminders_sent || [];
+      const planLabel = PLAN_LABELS[user.premium_plan] || 'Premium plan';
+
+      for (const reminder of remindersToSend) {
+        if (sent.includes(reminder)) continue;
+
+        console.log(`[Premium Reminders] Sending ${reminder} to ${user.email}`);
+
+        if (reminder === 'premium_day_7') {
+          await sendPremiumDay7ReminderEmail(user.email, user.full_name, planLabel);
+        } else if (reminder === 'premium_day_1') {
+          await sendPremiumDay1ReminderEmail(user.email, user.full_name, planLabel);
+        } else if (reminder === 'premium_expired') {
+          await sendPremiumExpiredEmail(user.email, user.full_name, planLabel);
+
+          // Proactive downgrade — don't wait for the user to open the
+          // extension and trigger getUser's own inline expiry check.
+          if (user.is_premium) {
+            await supabase
+              .from('extension_users')
+              .update({ tier: 'FREE', is_premium: false, is_in_trial: false })
+              .eq('id', user.id);
+          }
+        }
+
+        const updatedReminders = [...sent, reminder];
+        await supabase
+          .from('extension_users')
+          .update({ reminders_sent: updatedReminders })
+          .eq('id', user.id);
+      }
+    }
+
     res.status(200).json({
       success: true,
-      message: 'Trial reminders processed',
-      usersProcessed: users.length
+      message: 'Trial and premium-expiry reminders processed',
+      usersProcessed: users.length,
+      premiumUsersProcessed: premiumUsers.length
     });
 
   } catch (error) {
