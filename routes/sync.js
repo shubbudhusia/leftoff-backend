@@ -15,13 +15,27 @@ async function verifyUser(email, leftOffId) {
 
   const { data: user } = await supabase
     .from('extension_users')
-    .select('id, left_off_id')
+    .select('id, left_off_id, is_premium, premium_expires_at, tier, trial_end_date')
     .eq('email', email.toLowerCase())
     .eq('extension_id', extensionId)
     .single();
 
   if (!user || user.left_off_id !== leftOffId) return null;
   return user;
+}
+
+// Cloud sync is a paid feature (see FEATURES.md / the upgrade modal's
+// "Cloud backup & sync" line). This is the ONLY check that actually matters —
+// client-side gates can be bypassed by anyone calling this endpoint directly,
+// so a stale/self-reported isPremium flag from the extension must never be
+// trusted here. Mirrors the real-time expiry check used elsewhere
+// (authController.js) rather than trusting a possibly-stale is_premium flag.
+function hasSyncAccess(user) {
+  const premiumActive = user.is_premium &&
+    (user.premium_expires_at === null || new Date(user.premium_expires_at).getTime() > Date.now());
+  const trialActive = user.tier === 'TRIAL' &&
+    !!user.trial_end_date && new Date(user.trial_end_date).getTime() > Date.now();
+  return premiumActive || trialActive;
 }
 
 // POST /api/sync/save  { email, leftOffId, data: { unfinishedVideos, queueHistory } }
@@ -32,6 +46,9 @@ router.post('/save', async (req, res) => {
     const user = await verifyUser(email, leftOffId);
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+    if (!hasSyncAccess(user)) {
+      return res.status(403).json({ success: false, message: 'Cloud sync requires Premium or an active trial' });
     }
 
     const { error } = await supabase
@@ -64,6 +81,9 @@ router.post('/load', async (req, res) => {
     const user = await verifyUser(email, leftOffId);
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+    if (!hasSyncAccess(user)) {
+      return res.status(403).json({ success: false, message: 'Cloud sync requires Premium or an active trial' });
     }
 
     const { data: row } = await supabase

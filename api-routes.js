@@ -3,6 +3,7 @@ const router = express.Router();
 
 // Use the shared, validated Supabase client
 const { supabase, getExtensionId } = require('./config/supabase');
+const { isAdminRequest } = require('./middleware/adminAuth');
 
 // ============ GET ADMIN ANALYTICS ============
 // Reads the tables the app actually writes to (extension_users, trial_devices).
@@ -10,8 +11,9 @@ const { supabase, getExtensionId } = require('./config/supabase');
 // wired up by any real signup or webhook flow, so it always crashed.
 router.get('/api/admin/analytics', async (req, res) => {
   try {
-    // Check admin key
-    if (req.headers['x-admin-key'] !== process.env.ADMIN_API_KEY) {
+    // Check admin key — fails closed if ADMIN_API_KEY isn't configured,
+    // unlike the old plain !== compare (see middleware/adminAuth.js).
+    if (!isAdminRequest(req)) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 

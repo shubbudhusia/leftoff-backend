@@ -1,5 +1,51 @@
 const { supabase, getExtensionId } = require('../config/supabase');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+const net = require('net');
+
+// ============ VERIFY-CODE BRUTE-FORCE PROTECTION ============
+// In-memory sliding-window limiter, keyed by email — the 6-digit code has
+// no other rate limit anywhere, which previously let an unauthenticated
+// caller loop all 900,000 values with zero penalty. Keyed by email (the
+// actual attack target) rather than IP, since IP is trivially rotated.
+// Resets on a server restart/redeploy — acceptable: that's a far smaller
+// window than "unlimited attempts forever", and closing this without a DB
+// migration (no attempt-counter column exists yet) is the deployable fix
+// available right now.
+const verifyAttempts = new Map(); // email -> { count, firstAttemptAt }
+const VERIFY_MAX_ATTEMPTS = 5;
+const VERIFY_WINDOW_MS = 15 * 60 * 1000;
+
+function isVerifyRateLimited(email) {
+  const rec = verifyAttempts.get(email.toLowerCase());
+  if (!rec) return false;
+  if (Date.now() - rec.firstAttemptAt > VERIFY_WINDOW_MS) {
+    verifyAttempts.delete(email.toLowerCase());
+    return false;
+  }
+  return rec.count >= VERIFY_MAX_ATTEMPTS;
+}
+
+function recordFailedVerifyAttempt(email) {
+  const key = email.toLowerCase();
+  const rec = verifyAttempts.get(key);
+  if (!rec || Date.now() - rec.firstAttemptAt > VERIFY_WINDOW_MS) {
+    verifyAttempts.set(key, { count: 1, firstAttemptAt: Date.now() });
+  } else {
+    rec.count++;
+  }
+}
+
+function clearVerifyAttempts(email) {
+  verifyAttempts.delete(email.toLowerCase());
+}
+
+// Constant-time code comparison — a naive !== leaks match-length via timing.
+function codesMatch(stored, submitted) {
+  const a = Buffer.from(String(stored || ''));
+  const b = Buffer.from(String(submitted || ''));
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
 
 // ============ TRIAL CONSTANTS ============
 const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -11,17 +57,24 @@ const REMINDER_DAY_8 = 15 * 24 * 60 * 60 * 1000;  // expired
 
 // ============ HELPER FUNCTIONS ============
 
+// left_off_id doubles as the bearer credential /api/sync trusts, and the
+// verification code is a one-time auth secret — both need to be
+// unpredictable, not just "looks random". Math.random() is a non-crypto
+// PRNG whose state is recoverable from enough observed outputs (self-signup
+// gives an attacker unlimited samples). crypto.randomInt is CSPRNG-backed.
+// ID also went from 5 to 12 chars (~60M -> ~4.7 quintillion combinations) —
+// nothing else in the codebase checks its length, confirmed by search.
 function generateLeftOffId() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = 'LEFTOFF-';
-  for (let i = 0; i < 5; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < 12; i++) {
+    result += chars.charAt(crypto.randomInt(chars.length));
   }
   return result;
 }
 
 function generateVerificationCode() {
-  return String(Math.floor(Math.random() * 900000) + 100000);
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 function getTrialEndDate() {
@@ -394,12 +447,16 @@ exports.signup = async (req, res) => {
         if (err) console.error('Login code email failed:', err);
       });
 
+      // SECURITY: never return left_off_id here — this endpoint runs before
+      // any ownership check (no code, no password), so it was previously
+      // handing the /api/sync credential to anyone who just knew the email.
+      // The extension gets it from verifyCode() once the emailed code is
+      // actually matched, same as the getUser() fix this mirrors.
       return res.status(200).json({
         success: true,
         existing: true,
         message: 'Welcome back! We emailed you a login code.',
         data: {
-          leftOffId: existingUser.left_off_id,
           email: existingUser.email
         }
       });
@@ -500,14 +557,18 @@ exports.signup = async (req, res) => {
       leftOffId: leftOffId
     });
 
-    // SECURITY: never return the verification code to the client —
-    // the email is the only delivery channel, that's what makes it verification
+    // SECURITY: never return the verification code OR left_off_id here —
+    // this request proves nothing about who actually owns `email` (anyone
+    // can submit any address), so handing back the /api/sync credential
+    // immediately would let an attacker pre-claim a victim's not-yet-
+    // registered email and read/overwrite their sync data before the real
+    // owner ever opens the verification email. The extension gets
+    // left_off_id from verifyCode() once the emailed code is matched.
     res.status(201).json({
       success: true,
       existing: false,
       message: 'Account created. Verification email sent.',
       data: {
-        leftOffId: leftOffId,
         email: email
       }
     });
@@ -533,6 +594,13 @@ exports.verifyCode = async (req, res) => {
       });
     }
 
+    if (isVerifyRateLimited(email)) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many incorrect attempts. Please wait 15 minutes and try again, or request a new code.'
+      });
+    }
+
     // Get leftoff extension ID (creates the row if missing)
     const extensionId = await getExtensionId();
 
@@ -551,13 +619,18 @@ exports.verifyCode = async (req, res) => {
       });
     }
 
-    // Check verification code
-    if (user.verification_code !== verificationCode) {
+    // Check verification code — constant-time compare, and every wrong
+    // guess counts against the rate limit above (closes the "loop all
+    // 900,000 codes for free" hole).
+    if (!codesMatch(user.verification_code, verificationCode)) {
+      recordFailedVerifyAttempt(email);
       return res.status(400).json({
         success: false,
         message: 'Invalid verification code'
       });
     }
+
+    clearVerifyAttempts(email);
 
     // Update user
     const { error: updateError } = await supabase
@@ -629,7 +702,16 @@ exports.verifyCode = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
+    // SECURITY: this used to be a fully public lookup keyed on nothing but
+    // the email in the URL — anyone could confirm an address has an account
+    // and read their name/tier/trial dates (a user-enumeration + PII
+    // oracle). Now requires the SAME (email, leftOffId) credential pair
+    // /api/sync already trusts — the extension has both post-verification,
+    // an outside caller with just an email guess does not. Every failure
+    // returns the identical 404 as a genuinely-missing user, so a wrong
+    // leftOffId can't be distinguished from "no such account" either.
     const extensionId = await getExtensionId();
+    const suppliedLeftOffId = req.query.leftOffId;
 
     const { data: user, error } = await supabase
       .from('extension_users')
@@ -638,7 +720,7 @@ exports.getUser = async (req, res) => {
       .eq('extension_id', extensionId)
       .single();
 
-    if (!user) {
+    if (!user || !codesMatch(user.left_off_id, suppliedLeftOffId)) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
@@ -662,10 +744,9 @@ exports.getUser = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        // NOTE: left_off_id is deliberately NOT returned here. This endpoint is
-        // public (no auth), and left_off_id is the credential that protects
-        // /api/sync. Leaking it for any email would let anyone read another
-        // user's synced history. The extension gets its own id from signup/verify.
+        // NOTE: left_off_id is deliberately NOT returned here either, even
+        // though the caller had to prove they already know it above — no
+        // reason to echo a credential back over the wire a second time.
         fullName: user.full_name,
         email: user.email,
         tier: user.tier,
@@ -755,8 +836,32 @@ exports.resendVerificationCode = async (req, res) => {
 
 // ============ TRIAL REMINDER PROCESSOR ============
 
+// This endpoint has no auth (see below for why) and was previously callable
+// with no limit — anyone could loop it to fan out over every user row,
+// re-sending reminder emails (burning the mail quota so real verification
+// codes stop delivering) and racing concurrent reminders_sent writes into
+// duplicate sends. A cooldown on the expensive part closes both: repeat
+// calls inside the window are a no-op instead of a full table scan.
+let lastReminderRunAt = 0;
+const REMINDER_RUN_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+
 exports.processTrialReminders = async (req, res) => {
   try {
+    // Can't gate this with a secret admin key — background.js calls it
+    // directly from every installed extension with no key, and shipping a
+    // secret inside a publicly-distributed Chrome extension would hand it
+    // to anyone who unzips the .crx, which is worse than the current gap.
+    // The real fix is moving this off a client-triggered HTTP endpoint onto
+    // a server-side scheduler; the cooldown below is the safe stopgap that
+    // doesn't require an extension update to deploy.
+    if (Date.now() - lastReminderRunAt < REMINDER_RUN_COOLDOWN_MS) {
+      return res.json({
+        success: true,
+        message: 'Reminders were processed recently; skipped to avoid duplicate sends.'
+      });
+    }
+    lastReminderRunAt = Date.now();
+
     console.log('[Trial Reminders] Processing started...');
 
     // Get all users with trials
@@ -981,6 +1086,11 @@ const INDEPENDENCE_OFFER_PLAN = 'independence_2026';
 // ~76-install extension) so a third-party API is fine — no need to ship a
 // local GeoIP database for this.
 async function lookupCountry(ip) {
+  // Reject anything that isn't a syntactically real IP before it reaches
+  // an interpolated URL — defense in depth on top of the trust-proxy fix
+  // in server.js, which is what actually stops the value from being
+  // attacker-controlled in the first place.
+  if (!net.isIP(ip)) return null;
   try {
     const resp = await fetch(`https://ipwho.is/${ip}`);
     const data = await resp.json();
@@ -993,11 +1103,12 @@ async function lookupCountry(ip) {
 }
 
 function getRequestIp(req) {
-  // x-forwarded-for can be a comma-separated chain; the first entry is the
-  // original client. req.ip already resolves this correctly once
-  // app.set('trust proxy', true) is set, but fall back just in case.
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) return forwarded.split(',')[0].trim();
+  // req.ip alone — NOT the raw x-forwarded-for header. With trust proxy
+  // set to a hop count (server.js) instead of `true`, Express itself
+  // resolves this correctly from the position in the chain Render's own
+  // proxy actually appended, so a client-supplied X-Forwarded-For can no
+  // longer override it. Reading the header directly here (the old
+  // behavior) bypassed that protection entirely.
   return req.ip;
 }
 

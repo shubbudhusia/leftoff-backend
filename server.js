@@ -16,10 +16,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Render sits behind a reverse proxy — without this, req.ip is Render's
-// internal proxy address, not the visitor's real IP. Needed for the
-// Independence Day offer's India-only geo check.
-app.set('trust proxy', true);
+// Render sits behind exactly ONE reverse proxy — `true` (trust the whole
+// chain) let a client set its OWN X-Forwarded-For header and have Express
+// believe the leftmost (attacker-controlled) entry over the real one,
+// which fully defeated the Independence Day offer's India-only geo check
+// (fake an Indian IP, get free Premium from anywhere). A numeric hop count
+// makes Express trust exactly 1 proxy — it reads the client IP from
+// Render's own appended entry, discarding anything the client prepended.
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors());
