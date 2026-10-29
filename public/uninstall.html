@@ -69,6 +69,9 @@
       <div class="icon">👋</div>
       <h1>Before you go — mind telling us why?</h1>
       <p class="sub">One click, that's it. Totally anonymous.</p>
+      <div class="more-detail">
+        <textarea id="upfrontBox" aria-label="What went wrong? (optional)" placeholder="What went wrong? (optional, then pick the closest reason below)" maxlength="1000"></textarea>
+      </div>
       <div class="reasons">
         <button class="reason-btn" data-reason="not_working">😕 It stopped working / had a bug</button>
         <button class="reason-btn" data-reason="privacy_concern">🔒 Too many permissions / privacy concern</button>
@@ -124,9 +127,13 @@
     document.querySelectorAll('.reason-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         currentReason = btn.dataset.reason;
-        submitFeedback(currentReason, null);
+        const upfront = document.getElementById('upfrontBox').value.trim();
+        submitFeedback(currentReason, upfront || null);
         askScreen.style.display = 'none';
         thanksScreen.style.display = 'block';
+        // Already sent with the reason as ONE row — don't offer a second
+        // submit that would create a duplicate row for the same person.
+        if (upfront) document.querySelector('#thanksScreen .more-detail').style.display = 'none';
       });
     });
 
