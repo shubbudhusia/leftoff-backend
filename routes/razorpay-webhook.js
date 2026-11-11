@@ -8,7 +8,7 @@
 // Plan detection (amount in paise):
 //   ₹29  (2900 paise)  → monthly  → 30 days
 //   ₹199 (19900 paise) → yearly   → 365 days
-//   ₹499 (49900 paise) → lifetime → permanent (null expiry)
+//   ₹299 (29900 paise) → lifetime → permanent (null expiry)
 //
 // Renewal logic (Option B):
 //   New expiry = MAX(current_expiry, now) + plan_days
@@ -22,7 +22,7 @@ const { recordPayment } = require('../services/record-payment');
 function getPlanFromAmount(amountPaise) {
   if (amountPaise <= 3000) return { name: 'monthly', days: 30 };
   if (amountPaise <= 20000) return { name: 'yearly', days: 365 };
-  // ₹499+ = lifetime
+  // above ₹200 (₹299 page) = lifetime
   return { name: 'lifetime', days: null };
 }
 
