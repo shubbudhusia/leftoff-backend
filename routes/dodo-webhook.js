@@ -59,6 +59,8 @@ function verifySignature(secret, msgId, timestamp, rawBody, signatureHeader) {
   });
 }
 
+const DODO_PLAN = 'dodo';
+
 async function setUserTier(email, updates) {
   const extensionId = await getExtensionId();
 
@@ -119,13 +121,16 @@ module.exports = async function dodoWebhook(req, res) {
         is_premium: true,
         premium_since: new Date().toISOString(),
         is_in_trial: false,
-        trial_end_date: null
+        trial_end_date: null,
+        // Dodo access is ended by subscription.cancelled/expired events, not a
+        // date — clear any stale expiry (e.g. a 90-day promo) that would
+        // otherwise downgrade a paying user when it passes.
+        premium_expires_at: null,
+        premium_plan: DODO_PLAN
       });
 
       if (!updated || updated.length === 0) {
-        // Paid with an email that doesn't match a registered account —
-        // logged for manual reconciliation via admin upgrade endpoint
-        console.warn('[Dodo Webhook] ⚠️ No user found for paid email:', email);
+        console.error('[Dodo Webhook] ❌ PAID BUT NOT UPGRADED — no account for', email, '— run: node update-user.js', email);
       }
 
       // Revenue history — recorded after the upgrade so a failure here can
@@ -155,7 +160,16 @@ module.exports = async function dodoWebhook(req, res) {
     } else if (downgradeEvents.includes(type)) {
       if (email) {
         console.log('[Dodo Webhook] Subscription ended for:', email);
-        await setUserTier(email, { tier: 'FREE', is_premium: false });
+        // Only end access that Dodo granted — a user who also holds a
+        // Razorpay plan (or lifetime) must not be downgraded by this.
+        const extensionId = await getExtensionId();
+        const { error: downErr } = await supabase
+          .from('extension_users')
+          .update({ tier: 'FREE', is_premium: false })
+          .eq('email', email.toLowerCase())
+          .eq('extension_id', extensionId)
+          .eq('premium_plan', DODO_PLAN);
+        if (downErr) throw downErr;
       }
     }
 
@@ -163,6 +177,6 @@ module.exports = async function dodoWebhook(req, res) {
   } catch (err) {
     console.error('[Dodo Webhook] Handler error:', err.message);
     // 500 makes Dodo retry the delivery
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Webhook handler error' });
   }
 };

@@ -98,7 +98,9 @@ module.exports = async function razorpayWebhook(req, res) {
     .update(req.body)
     .digest('hex');
 
-  if (signature !== expected) {
+  const sigBuf = Buffer.from(String(signature || ''), 'utf8');
+  const expBuf = Buffer.from(expected, 'utf8');
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     console.error('[Razorpay Webhook] Invalid signature');
     return res.status(400).json({ error: 'Invalid signature' });
   }
@@ -118,11 +120,12 @@ module.exports = async function razorpayWebhook(req, res) {
       }
 
       console.log(`[Razorpay Webhook] Payment ₹${amountPaise / 100} for: ${email}`);
-      await applyPremium(email, amountPaise);
 
-      // Revenue history — recorded after the upgrade so a failure here can
-      // never cost a paying customer their access.
-      await recordPayment({
+      // Record FIRST: the unique (gateway, transaction_id) constraint is what
+      // makes this idempotent. One payment fires both payment.captured and
+      // payment_link.paid, and Razorpay retries on timeout — without this
+      // check every delivery extended the expiry again (1 yearly = 2+ years).
+      const outcome = await recordPayment({
         email,
         gateway: 'razorpay',
         transactionId: payment.id,
@@ -132,12 +135,23 @@ module.exports = async function razorpayWebhook(req, res) {
         paidAt: payment.created_at ? new Date(payment.created_at * 1000) : null,
         raw: event
       });
+
+      if (outcome === 'duplicate') {
+        console.log('[Razorpay Webhook] Already processed payment', payment.id, '— not extending again');
+      } else {
+        // 'failed' still upgrades: a paying customer must never lose access
+        // because the revenue log write failed.
+        const updated = await applyPremium(email, amountPaise);
+        if (!updated) {
+          console.error('[Razorpay Webhook] ❌ PAID BUT NOT UPGRADED — no account for', email, 'payment', payment.id, '— run: node update-user.js', email);
+        }
+      }
     }
 
     res.json({ received: true });
   } catch (err) {
     console.error('[Razorpay Webhook] Handler error:', err.message);
     // 500 makes Razorpay retry the delivery
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Webhook handler error' });
   }
 };

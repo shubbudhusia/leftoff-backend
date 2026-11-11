@@ -5,6 +5,23 @@ const { supabase } = require('../config/supabase');
 // Must match TRIAL_DURATION_MS in authController.js
 const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
 
+// The fingerprint is client-chosen, so a script could mint a fresh one per
+// request for endless "new" trials and fill this table. Real users create at
+// most a couple per network per day (reinstall, second browser profile).
+const NEW_TRIALS_PER_IP_PER_DAY = 5;
+const newTrialLog = new Map();
+function newTrialAllowed(ip) {
+  const now = Date.now(), day = 24 * 60 * 60 * 1000;
+  const recent = (newTrialLog.get(ip) || []).filter(t => now - t < day);
+  if (recent.length >= NEW_TRIALS_PER_IP_PER_DAY) return false;
+  recent.push(now);
+  newTrialLog.set(ip, recent);
+  if (newTrialLog.size > 10000) {
+    for (const [k, ts] of newTrialLog) if (!ts.some(t => now - t < day)) newTrialLog.delete(k);
+  }
+  return true;
+}
+
 function daysRemaining(endDate) {
   return Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
 }
@@ -50,6 +67,10 @@ router.post('/device', async (req, res) => {
         daysRemaining: remaining,
         status: remaining > 0 ? 'ACTIVE' : 'EXPIRED'
       });
+    }
+
+    if (!newTrialAllowed(req.ip || 'unknown')) {
+      return res.status(429).json({ success: false, message: 'Too many new trials from this network today' });
     }
 
     // New device — start its one and only anonymous trial.

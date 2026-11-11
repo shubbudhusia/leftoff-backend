@@ -26,7 +26,13 @@ const PORT = process.env.PORT || 3001;
 app.set('trust proxy', 1);
 
 // Middleware
-app.use(cors());
+// Only the extension and this server's own pages (uninstall survey, landing)
+// call the API from a browser. Extension pages with host permissions aren't
+// subject to CORS anyway; this just stops arbitrary sites from scripting it.
+const SELF_ORIGIN = 'https://leftoff-backend.onrender.com';
+app.use(cors({
+  origin: (origin, cb) => cb(null, !origin || origin === SELF_ORIGIN || origin.startsWith('chrome-extension://'))
+}));
 
 // Public website (landing page + terms/privacy/refund policy) —
 // served at https://leftoff-backend.onrender.com/

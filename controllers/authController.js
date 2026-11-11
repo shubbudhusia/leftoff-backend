@@ -2,6 +2,7 @@ const { supabase, getExtensionId } = require('../config/supabase');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const net = require('net');
+const { isAdminRequest } = require('../middleware/adminAuth');
 
 // ============ VERIFY-CODE BRUTE-FORCE PROTECTION ============
 // In-memory sliding-window limiter, keyed by email — the 6-digit code has
@@ -142,6 +143,67 @@ const transporter = nodemailer.createTransport({
 // Gmail sending always times out there. When BREVO_API_KEY is set we send
 // through Brevo's HTTPS API instead (port 443 — never blocked).
 // Drop-in replacement for sendEmail(mailOptions, callback).
+// ============ OUTBOUND EMAIL SAFETY ============
+// `name` is attacker-controllable (anyone can sign up with any email), so it
+// must never be interpolated into email HTML raw — that let a stranger put a
+// phishing link inside a genuine LeftOff email to someone else's address.
+function esc(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Unauthenticated endpoints that send email (signup, resend-code) could be
+// looped to mail-bomb any address and burn the sending quota. In-memory is
+// enough for a single Render instance; it resets on restart, which is fine.
+const EMAIL_SEND_LIMITS = { perEmail: 3, perIp: 15, windowMs: 60 * 60 * 1000 };
+const emailSendLog = new Map();
+function emailSendAllowed(email, ip) {
+  const now = Date.now();
+  const keys = ['e:' + String(email).toLowerCase(), 'i:' + String(ip || 'unknown')];
+  const limits = [EMAIL_SEND_LIMITS.perEmail, EMAIL_SEND_LIMITS.perIp];
+  const recent = keys.map(k => (emailSendLog.get(k) || []).filter(t => now - t < EMAIL_SEND_LIMITS.windowMs));
+  if (recent[0].length >= limits[0] || recent[1].length >= limits[1]) return false;
+  keys.forEach((k, i) => emailSendLog.set(k, [...recent[i], now]));
+  if (emailSendLog.size > 5000) {
+    for (const [k, ts] of emailSendLog) if (!ts.some(t => now - t < EMAIL_SEND_LIMITS.windowMs)) emailSendLog.delete(k);
+  }
+  return true;
+}
+
+// Promise form: resolves true only when the provider accepted the message,
+// so callers can tell the user (and retry later) instead of claiming success.
+function sendEmailAsync(mailOptions) {
+  return new Promise((resolve) => sendEmail(mailOptions, (err) => resolve(!err)));
+}
+
+// ============ VERIFICATION CODE EXPIRY ============
+// Codes are good for 24h (as the email says). The issue time is stored in
+// extension_users.verification_code_sent_at when that column exists (see
+// migrations/002_code_expiry.sql) and in memory as a fallback, so this works
+// before and after the migration is run.
+const CODE_TTL_MS = 24 * 60 * 60 * 1000;
+const codeIssuedAt = new Map();
+let codeTimeColumn = null;
+async function hasCodeTimeColumn() {
+  if (codeTimeColumn !== null) return codeTimeColumn;
+  const { error } = await supabase.from('extension_users').select('verification_code_sent_at').limit(1);
+  codeTimeColumn = !error;
+  return codeTimeColumn;
+}
+async function codeFields(email, code) {
+  codeIssuedAt.set(String(email).toLowerCase(), Date.now());
+  const fields = { verification_code: code };
+  if (await hasCodeTimeColumn()) fields.verification_code_sent_at = new Date().toISOString();
+  return fields;
+}
+function codeExpired(user, email) {
+  const issued = user.verification_code_sent_at
+    ? Date.parse(user.verification_code_sent_at)
+    : codeIssuedAt.get(String(email).toLowerCase());
+  return !!issued && Date.now() - issued > CODE_TTL_MS;
+}
+
 function sendEmail(mailOptions, callback) {
   const cb = callback || (() => {});
 
@@ -182,7 +244,7 @@ function sendDay5ReminderEmail(email, name, daysLeft) {
     to: email,
     subject: `⏰ Your LeftOff trial ends in ${daysLeft} days!`,
     html: `
-      <h2>Hi ${name}! ⏰</h2>
+      <h2>Hi ${esc(name)}! ⏰</h2>
       <p>Your <strong>14-day free trial</strong> expires in <strong>${daysLeft} days</strong>.</p>
 
       <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 15px; margin: 20px 0; border-radius: 4px;">
@@ -220,7 +282,7 @@ function sendDay5ReminderEmail(email, name, daysLeft) {
       } else {
         console.log('[Day 5 Reminder] Sent to:', email);
       }
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -268,7 +330,7 @@ function sendDay7ReminderEmail(email, name) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Day 7 Reminder] Failed:', err);
       else console.log('[Day 7 Reminder] Sent to:', email);
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -281,7 +343,7 @@ function sendTrialExpiredEmail(email, name) {
     subject: 'Your trial has ended — Resume still works free',
     html: `
       <h2>Trial Period Ended</h2>
-      <p>Hi ${name},</p>
+      <p>Hi ${esc(name)},</p>
       <p>Your <strong>14-day free trial</strong> has ended. Your account has been switched to <strong>Free mode</strong>.</p>
 
       <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -321,7 +383,7 @@ function sendTrialExpiredEmail(email, name) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Trial Expired] Failed:', err);
       else console.log('[Trial Expired] Sent to:', email);
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -345,7 +407,7 @@ function sendPremiumDay7ReminderEmail(email, name, planLabel) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Premium Day 7 Reminder] Failed:', err);
       else console.log('[Premium Day 7 Reminder] Sent to:', email);
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -368,7 +430,7 @@ function sendPremiumDay1ReminderEmail(email, name, planLabel) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Premium Day 1 Reminder] Failed:', err);
       else console.log('[Premium Day 1 Reminder] Sent to:', email);
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -391,7 +453,7 @@ function sendPremiumExpiredEmail(email, name, planLabel) {
     sendEmail(mailOptions, (err) => {
       if (err) console.error('[Premium Expired] Failed:', err);
       else console.log('[Premium Expired] Sent to:', email);
-      resolve();
+      resolve(!err);
     });
   });
 }
@@ -400,12 +462,20 @@ function sendPremiumExpiredEmail(email, name, planLabel) {
 
 exports.signup = async (req, res) => {
   try {
-    const { name, email, source } = req.body;
+    const { email, source } = req.body;
+    const name = typeof req.body.name === 'string' ? req.body.name.trim().slice(0, 100) : '';
 
-    if (!name || !email) {
+    if (!name || typeof email !== 'string' || !email.includes('@') || email.length > 254) {
       return res.status(400).json({
         success: false,
         message: 'Please provide name and email'
+      });
+    }
+
+    if (!emailSendAllowed(email, getRequestIp(req))) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many attempts. Please wait an hour and try again.'
       });
     }
 
@@ -426,26 +496,33 @@ exports.signup = async (req, res) => {
       // extension restores their ORIGINAL trial/premium state from the server.
       const loginCode = generateVerificationCode();
 
-      await supabase
+      const { error: codeErr } = await supabase
         .from('extension_users')
-        .update({ verification_code: loginCode })
+        .update(await codeFields(email, loginCode))
         .eq('id', existingUser.id);
+      if (codeErr) throw codeErr;
 
-      sendEmail({
+      const loginEmailSent = await sendEmailAsync({
         from: process.env.EMAIL_USER,
         to: email,
         subject: 'Your LeftOff Login Code',
         html: `
-          <h2>Welcome back, ${existingUser.full_name}!</h2>
+          <h2>Welcome back, ${esc(existingUser.full_name)}!</h2>
           <p>Use this code to sign back in to LeftOff:</p>
           <h1 style="letter-spacing: 6px;">${loginCode}</h1>
           <p style="color: #999; font-size: 12px;">
             If you didn't request this, you can ignore this email.
           </p>
         `
-      }, (err) => {
-        if (err) console.error('Login code email failed:', err);
       });
+
+      if (!loginEmailSent) {
+        console.error('[Signup] ❌ Login code email failed for:', email);
+        return res.status(502).json({
+          success: false,
+          message: "We couldn't send your login code email. Please try again in a minute."
+        });
+      }
 
       // SECURITY: never return left_off_id here — this endpoint runs before
       // any ownership check (no code, no password), so it was previously
@@ -502,7 +579,7 @@ exports.signup = async (req, res) => {
           full_name: name,
           email: email.toLowerCase(),
           left_off_id: leftOffId,
-          verification_code: verificationCode,
+          ...(await codeFields(email, verificationCode)),
           tier: 'TRIAL',
           trial_start_date: trialStartDate,
           trial_end_date: trialEndDate,
@@ -526,7 +603,7 @@ exports.signup = async (req, res) => {
       to: email,
       subject: 'LeftOff Account Verification Code',
       html: `
-        <h2>Welcome to LeftOff, ${name}!</h2>
+        <h2>Welcome to LeftOff, ${esc(name)}!</h2>
         <p>Your account has been created. Here are your details:</p>
 
         <div style="background: #f0f0f0; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -543,13 +620,16 @@ exports.signup = async (req, res) => {
       `
     };
 
-    sendEmail(mailOptions, (err) => {
-      if (err) {
-        console.error('Email sending failed:', err);
-      } else {
-        console.log('✅ Verification email sent to:', email);
-      }
-    });
+    const verificationSent = await sendEmailAsync(mailOptions);
+    if (!verificationSent) {
+      // The account exists now; signing up again with the same email takes
+      // the existing-user path and sends a fresh code, so the user can retry.
+      console.error('[Signup] ❌ Verification email failed for:', email);
+      return res.status(502).json({
+        success: false,
+        message: "Your account was created but we couldn't send the verification email. Please try again in a minute."
+      });
+    }
 
     console.log('[Signup] User registered:', {
       name: name,
@@ -578,7 +658,6 @@ exports.signup = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error during signup',
-      error: error.message
     });
   }
 };
@@ -622,6 +701,13 @@ exports.verifyCode = async (req, res) => {
     // Check verification code — constant-time compare, and every wrong
     // guess counts against the rate limit above (closes the "loop all
     // 900,000 codes for free" hole).
+    if (user.verification_code && codeExpired(user, email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This code has expired. Please request a new one.'
+      });
+    }
+
     if (!codesMatch(user.verification_code, verificationCode)) {
       recordFailedVerifyAttempt(email);
       return res.status(400).json({
@@ -656,7 +742,7 @@ exports.verifyCode = async (req, res) => {
       subject: 'LeftOff Account Verified ✅',
       html: `
         <h2>Account Verified!</h2>
-        <p>Hi ${user.full_name},</p>
+        <p>Hi ${esc(user.full_name)},</p>
         <p>Your LeftOff account is now verified and ready to use.</p>
         <p>You can now start tracking your YouTube videos!</p>
 
@@ -695,7 +781,6 @@ exports.verifyCode = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Verification failed',
-      error: error.message
     });
   }
 };
@@ -711,12 +796,20 @@ exports.getUser = async (req, res) => {
     // returns the identical 404 as a genuinely-missing user, so a wrong
     // leftOffId can't be distinguished from "no such account" either.
     const extensionId = await getExtensionId();
-    const suppliedLeftOffId = req.query.leftOffId;
+    // POST body is the current form; the GET query-string form stays only so
+    // installs that haven't updated yet keep working. Credentials in a URL
+    // end up in proxy/server logs, so new code must not use it.
+    const body = req.body || {};
+    const suppliedLeftOffId = body.leftOffId || req.query.leftOffId;
+    const lookupEmail = typeof body.email === 'string' ? body.email : req.params.email;
+    if (typeof lookupEmail !== 'string' || !lookupEmail) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
 
     const { data: user, error } = await supabase
       .from('extension_users')
       .select('*')
-      .eq('email', req.params.email.toLowerCase())
+      .eq('email', lookupEmail.toLowerCase())
       .eq('extension_id', extensionId)
       .single();
 
@@ -761,13 +854,24 @@ exports.getUser = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error fetching user', error: error.message });
+    res.status(500).json({ success: false, message: 'Error fetching user' });
   }
 };
 
 exports.resendVerificationCode = async (req, res) => {
   try {
     const { email } = req.body;
+
+    if (typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    if (!emailSendAllowed(email, getRequestIp(req))) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many attempts. Please wait an hour and try again.'
+      });
+    }
 
     // Get leftoff extension ID (creates the row if missing)
     const extensionId = await getExtensionId();
@@ -793,7 +897,7 @@ exports.resendVerificationCode = async (req, res) => {
 
     const { error: updateError } = await supabase
       .from('extension_users')
-      .update({ verification_code: newCode })
+      .update(await codeFields(email, newCode))
       .eq('id', user.id);
 
     if (updateError) {
@@ -815,9 +919,13 @@ exports.resendVerificationCode = async (req, res) => {
       `
     };
 
-    sendEmail(mailOptions, (err) => {
-      if (err) console.error('Resend failed:', err);
-    });
+    if (!(await sendEmailAsync(mailOptions))) {
+      console.error('[Resend] Code email failed for:', email);
+      return res.status(502).json({
+        success: false,
+        message: "We couldn't send the email. Please try again in a minute."
+      });
+    }
 
     // SECURITY: never return the code to the client
     res.status(200).json({
@@ -829,7 +937,6 @@ exports.resendVerificationCode = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error resending code',
-      error: error.message
     });
   }
 };
@@ -884,39 +991,44 @@ exports.processTrialReminders = async (req, res) => {
 
       const trialEndDate = new Date(user.trial_end_date);
       const remindersToSend = getRemindersToSend(trialEndDate);
-      const sent = user.reminders_sent || [];
+      const sent = [...(user.reminders_sent || [])];
 
       for (const reminder of remindersToSend) {
         if (sent.includes(reminder)) continue;
 
         console.log(`[Trial Reminders] Sending ${reminder} to ${user.email}`);
 
+        let delivered = false;
         if (reminder === 'day_5') {
           const daysLeft = getTrialDaysRemaining(trialEndDate);
-          await sendDay5ReminderEmail(user.email, user.full_name, daysLeft);
+          delivered = await sendDay5ReminderEmail(user.email, user.full_name, daysLeft);
         } else if (reminder === 'day_7') {
-          await sendDay7ReminderEmail(user.email, user.full_name);
+          delivered = await sendDay7ReminderEmail(user.email, user.full_name);
         } else if (reminder === 'day_8_expired') {
-          await sendTrialExpiredEmail(user.email, user.full_name);
+          delivered = await sendTrialExpiredEmail(user.email, user.full_name);
 
-          // Update tier to FREE if still in TRIAL
+          // The downgrade must happen whether or not the email went out.
           if (user.tier === 'TRIAL') {
-            await supabase
+            const { error: downErr } = await supabase
               .from('extension_users')
               .update({
                 tier: 'FREE',
                 is_in_trial: false
               })
               .eq('id', user.id);
+            if (downErr) console.error('[Trial Reminders] Downgrade failed for', user.email, downErr.message);
           }
         }
 
-        // Mark reminder as sent
-        const updatedReminders = [...sent, reminder];
-        await supabase
+        // Only record reminders that were actually delivered, so a failed
+        // send is retried on the next run instead of being skipped forever.
+        if (!delivered) continue;
+        sent.push(reminder);
+        const { error: markErr } = await supabase
           .from('extension_users')
-          .update({ reminders_sent: updatedReminders })
+          .update({ reminders_sent: sent })
           .eq('id', user.id);
+        if (markErr) console.error('[Trial Reminders] Could not record reminder for', user.email, markErr.message);
       }
     }
 
@@ -942,7 +1054,7 @@ exports.processTrialReminders = async (req, res) => {
 
     for (const user of premiumUsers) {
       const remindersToSend = getPremiumRemindersToSend(user.premium_expires_at);
-      const sent = user.reminders_sent || [];
+      const sent = [...(user.reminders_sent || [])];
       const planLabel = PLAN_LABELS[user.premium_plan] || 'Premium plan';
 
       for (const reminder of remindersToSend) {
@@ -950,28 +1062,32 @@ exports.processTrialReminders = async (req, res) => {
 
         console.log(`[Premium Reminders] Sending ${reminder} to ${user.email}`);
 
+        let delivered = false;
         if (reminder === 'premium_day_7') {
-          await sendPremiumDay7ReminderEmail(user.email, user.full_name, planLabel);
+          delivered = await sendPremiumDay7ReminderEmail(user.email, user.full_name, planLabel);
         } else if (reminder === 'premium_day_1') {
-          await sendPremiumDay1ReminderEmail(user.email, user.full_name, planLabel);
+          delivered = await sendPremiumDay1ReminderEmail(user.email, user.full_name, planLabel);
         } else if (reminder === 'premium_expired') {
-          await sendPremiumExpiredEmail(user.email, user.full_name, planLabel);
+          delivered = await sendPremiumExpiredEmail(user.email, user.full_name, planLabel);
 
           // Proactive downgrade — don't wait for the user to open the
           // extension and trigger getUser's own inline expiry check.
           if (user.is_premium) {
-            await supabase
+            const { error: downErr } = await supabase
               .from('extension_users')
               .update({ tier: 'FREE', is_premium: false, is_in_trial: false })
               .eq('id', user.id);
+            if (downErr) console.error('[Premium Reminders] Downgrade failed for', user.email, downErr.message);
           }
         }
 
-        const updatedReminders = [...sent, reminder];
-        await supabase
+        if (!delivered) continue;
+        sent.push(reminder);
+        const { error: markErr } = await supabase
           .from('extension_users')
-          .update({ reminders_sent: updatedReminders })
+          .update({ reminders_sent: sent })
           .eq('id', user.id);
+        if (markErr) console.error('[Premium Reminders] Could not record reminder for', user.email, markErr.message);
       }
     }
 
@@ -987,7 +1103,6 @@ exports.processTrialReminders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error processing trial reminders',
-      error: error.message
     });
   }
 };
@@ -998,7 +1113,8 @@ exports.upgradeToPremium = async (req, res) => {
   try {
     // SECURITY: admin-only. Real payments upgrade users via the Stripe
     // webhook (/api/stripe/webhook) — never via a client-callable endpoint.
-    if (req.headers['x-admin-key'] !== process.env.ADMIN_API_KEY) {
+    // Fail-closed: a missing ADMIN_API_KEY env var must never mean "open".
+    if (!isAdminRequest(req)) {
       return res.status(401).json({
         success: false,
         message: 'Unauthorized'
@@ -1038,7 +1154,6 @@ exports.upgradeToPremium = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Error upgrading to premium',
-        error: error.message
       });
     }
 
@@ -1060,8 +1175,7 @@ exports.upgradeToPremium = async (req, res) => {
       user: {
         email: data[0].email,
         tier: data[0].tier,
-        isPremium: data[0].is_premium,
-        leftOffId: data[0].left_off_id
+        isPremium: data[0].is_premium
       }
     });
 
@@ -1070,7 +1184,6 @@ exports.upgradeToPremium = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error upgrading to premium',
-      error: error.message
     });
   }
 };
@@ -1251,7 +1364,7 @@ exports.redeemIndependenceOffer = async (req, res) => {
 
   } catch (error) {
     console.error('[Independence Offer] Error:', error);
-    res.status(500).json({ success: false, message: 'Error redeeming offer', error: error.message });
+    res.status(500).json({ success: false, message: 'Error redeeming offer' });
   }
 };
 
@@ -1262,7 +1375,7 @@ function sendPremiumWelcomeEmail(email, name) {
     to: email,
     subject: '🎉 Welcome to LeftOff Premium!',
     html: `
-      <h2>Welcome to LeftOff Premium, ${name}! 🎉</h2>
+      <h2>Welcome to LeftOff Premium, ${esc(name)}! 🎉</h2>
       <p>Thank you for upgrading to LeftOff Premium. You now have access to all premium features:</p>
 
       <div style="background: #f5f5f5; border-left: 4px solid #FF0000; padding: 15px; margin: 20px 0; border-radius: 4px;">

@@ -9,7 +9,8 @@ router.post('/signup', authController.signup);
 router.post('/verify', authController.verifyCode);
 
 // GET /api/auth/user/:email
-router.get('/user/:email', authController.getUser);
+router.get('/user/:email', authController.getUser); // legacy: credential in URL, kept for installs not yet updated
+router.post('/user', authController.getUser);
 
 // POST /api/auth/resend-code
 router.post('/resend-code', authController.resendVerificationCode);

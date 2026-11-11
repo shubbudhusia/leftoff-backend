@@ -18,6 +18,9 @@ const { supabase, getExtensionId } = require('../config/supabase');
  * @param {string|null} p.plan      'monthly' | 'yearly' | 'lifetime'
  * @param {Date|null}   p.paidAt
  * @param {object|null} p.raw       Full webhook payload
+ * @returns {Promise<'recorded'|'duplicate'|'failed'|'skipped'>}
+ *   'duplicate' means this exact transaction was already processed — callers
+ *   use it to avoid granting the same purchase twice.
  */
 async function recordPayment({
   email,
@@ -31,7 +34,7 @@ async function recordPayment({
 }) {
   if (!email || !transactionId) {
     console.warn('[Payments] Skipped record — missing email or transaction id');
-    return null;
+    return 'skipped';
   }
 
   try {
@@ -66,7 +69,7 @@ async function recordPayment({
       // already stored. Expected and harmless.
       if (error.code === '23505') {
         console.log('[Payments] Duplicate delivery ignored:', gateway, transactionId);
-        return null;
+        return 'duplicate';
       }
       throw error;
     }
@@ -75,10 +78,10 @@ async function recordPayment({
     if (!userId) {
       console.warn('[Payments] ⚠️ No matching account for', email, '— reconcile with: node update-user.js', email);
     }
-    return true;
+    return 'recorded';
   } catch (err) {
-    console.error('[Payments] Failed to record payment:', err.message);
-    return null; // never block the upgrade
+    console.error('[Payments] ❌ FAILED to record payment — reconcile manually:', gateway, transactionId, email, err.message);
+    return 'failed'; // never block the upgrade
   }
 }
 
