@@ -46,7 +46,10 @@ async function applyPremium(email, amountPaise) {
 
   let newExpiry = null; // null = permanent (lifetime)
 
-  if (plan.days !== null) {
+  // A lifetime account (premium, no end date) is never shortened by a later
+  // monthly/yearly purchase.
+  const alreadyLifetime = users[0].is_premium && !users[0].premium_expires_at;
+  if (plan.days !== null && !alreadyLifetime) {
     // Option B: start from whichever is later — current expiry or right now
     const existingExpiry = users[0].premium_expires_at
       ? new Date(users[0].premium_expires_at).getTime()
