@@ -204,8 +204,43 @@ function codeExpired(user, email) {
   return !!issued && Date.now() - issued > CODE_TTL_MS;
 }
 
+// Email delivery, in order of preference:
+//  1. Resend (RESEND_API_KEY + EMAIL_FROM on a domain verified in Resend).
+//     Sending from your own verified domain is what gets codes into Outlook /
+//     Hotmail inboxes; sending "as" a @gmail.com address through any third
+//     party fails Gmail's DMARC check and gets junked or silently dropped.
+//  2. Brevo (BREVO_API_KEY) — kept as a fallback.
+//  3. Gmail SMTP — local development only (Render free tier blocks SMTP).
 function sendEmail(mailOptions, callback) {
   const cb = callback || (() => {});
+
+  if (process.env.RESEND_API_KEY) {
+    fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM || 'LeftOff <onboarding@resend.dev>',
+        to: [mailOptions.to],
+        subject: mailOptions.subject,
+        html: mailOptions.html,
+        // Replies still reach the founder's normal inbox.
+        ...(process.env.EMAIL_USER ? { reply_to: process.env.EMAIL_USER } : {})
+      })
+    })
+      .then(async res => {
+        if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+        console.log('[Email] ✅ Sent via Resend to:', mailOptions.to);
+        cb(null, { accepted: [mailOptions.to] });
+      })
+      .catch(err => {
+        console.error('[Email] Resend send failed:', err.message);
+        cb(err);
+      });
+    return;
+  }
 
   if (process.env.BREVO_API_KEY) {
     fetch('https://api.brevo.com/v3/smtp/email', {
