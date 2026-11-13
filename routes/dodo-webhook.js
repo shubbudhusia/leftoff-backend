@@ -18,6 +18,30 @@ const { recordPayment } = require('../services/record-payment');
 // Prices: $3/month, $12/year, $19 lifetime. Thresholds sit between the
 // tiers so tax added at checkout (up to ~27% VAT) still classifies correctly:
 // $12 yearly + 27% = $15.24, below the $16 cut; lifetime starts at $19.
+// How many days of Premium a one-time Dodo payment buys (null = lifetime).
+// The product id is the reliable signal; the USD amount is the fallback.
+// When neither is recognised, grant lifetime so a paying customer is never
+// short-changed (and the log line makes it easy to spot).
+const DODO_PRODUCT_DAYS = {
+  pdt_0Nia81LZIJotADOa5vvjK: 30,   // monthly
+  pdt_0Nia8xxoEabDoqSPPU2qh: 365,  // yearly
+  pdt_0Nia9LsglG58KmPahazsI: null  // lifetime
+};
+function dodoAccessDays(data) {
+  const blob = JSON.stringify(data || {});
+  for (const [id, days] of Object.entries(DODO_PRODUCT_DAYS)) {
+    if (blob.includes(id)) return days;
+  }
+  const amount = extractAmount(data);
+  const currency = String((data && data.currency) || 'USD').toUpperCase();
+  if (amount !== null && currency === 'USD') {
+    const plan = getPlanFromUsd(amount);
+    return plan === 'monthly' ? 30 : plan === 'yearly' ? 365 : null;
+  }
+  console.warn('[Dodo Webhook] ⚠️ Unknown product/amount — granting lifetime');
+  return null;
+}
+
 function getPlanFromUsd(amount) {
   if (amount <= 10) return 'monthly';
   if (amount <= 16) return 'yearly';
@@ -117,16 +141,41 @@ module.exports = async function dodoWebhook(req, res) {
       }
 
       console.log('[Dodo Webhook] ✅ Payment confirmed for:', email);
+
+      // The Dodo products are one-time payments (not subscriptions), so no
+      // cancel/expire event will ever end a monthly or yearly purchase — the
+      // access period has to be set here, or a $3 "monthly" buyer would keep
+      // Premium forever. subscription.* events (if a subscription product is
+      // ever added) still get no end date; their cancel event ends them.
+      let expiresAt = null;
+      if (type === 'payment.succeeded') {
+        const days = dodoAccessDays(event.data);
+        if (days !== null) {
+          const extensionId = await getExtensionId();
+          const { data: current } = await supabase
+            .from('extension_users')
+            .select('premium_expires_at, is_premium')
+            .eq('email', email.toLowerCase())
+            .eq('extension_id', extensionId)
+            .limit(1);
+          const row = current && current[0];
+          if (row && row.is_premium && !row.premium_expires_at) {
+            expiresAt = null; // already lifetime — never shorten it
+          } else {
+            // Extend from the later of now or the current end date
+            const existing = row && row.premium_expires_at ? Date.parse(row.premium_expires_at) : 0;
+            expiresAt = new Date(Math.max(existing, Date.now()) + days * 86400000).toISOString();
+          }
+        }
+      }
+
       const updated = await setUserTier(email, {
         tier: 'PREMIUM',
         is_premium: true,
         premium_since: new Date().toISOString(),
         is_in_trial: false,
         trial_end_date: null,
-        // Dodo access is ended by subscription.cancelled/expired events, not a
-        // date — clear any stale expiry (e.g. a 90-day promo) that would
-        // otherwise downgrade a paying user when it passes.
-        premium_expires_at: null,
+        premium_expires_at: expiresAt, // null = lifetime
         premium_plan: DODO_PLAN
       });
 
