@@ -15,12 +15,12 @@ const { supabase, getExtensionId } = require('../config/supabase');
 const { recordPayment } = require('../services/record-payment');
 
 // Map a USD amount (major units) to the plan it corresponds to.
-// Prices: $3/month, $20/year, $29 lifetime. Thresholds sit between the
+// Prices: $3/month, $12/year, $19 lifetime. Thresholds sit between the
 // tiers so tax added at checkout (up to ~27% VAT) still classifies correctly:
-// $20 yearly + 27% = $25.40, below the $27 cut; lifetime starts at $29.
+// $12 yearly + 27% = $15.24, below the $16 cut; lifetime starts at $19.
 function getPlanFromUsd(amount) {
   if (amount <= 10) return 'monthly';
-  if (amount <= 27) return 'yearly';
+  if (amount <= 16) return 'yearly';
   return 'lifetime';
 }
 
